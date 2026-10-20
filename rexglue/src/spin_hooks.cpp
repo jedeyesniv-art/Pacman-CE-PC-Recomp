@@ -21,9 +21,10 @@ REXCVAR_DEFINE_BOOL(pacman_worker_backoff, true, "Pac-Man",
                     "Sleep in the job workers' idle polling loops instead of spinning");
 REXCVAR_DEFINE_BOOL(pacman_gpu_wait_backoff, true, "Pac-Man",
                     "Sleep in D3D's wait-for-GPU polling loop instead of spinning");
-// On by default: it doesn't remove the gameplay slowdown but makes it much milder (owner-tested 2026-10-20:
-// with it off, lag was constant). Costs ~1-2% CPU (the command processor polls instead of sleeping).
-REXCVAR_DEFINE_BOOL(pacman_fast_gpu_handshake, true, "Pac-Man",
+// Off by default since presentation was moved to the guest thread (the real cause of the gameplay slowdown,
+// see pacman_app.h): re-measured 2026-10-20, it no longer changes frame pacing but keeps the GPU thread
+// busy-polling at ~95% of a core. It was a mitigation while presentation waited on the host refresh.
+REXCVAR_DEFINE_BOOL(pacman_fast_gpu_handshake, false, "Pac-Man",
                     "Make the GPU poll (not sleep 1 ms) in D3D's per-frame CPU/GPU handshake waits");
 REXCVAR_DEFINE_UINT32(pacman_command_buffer_mb, 8, "Pac-Man",
                       "D3D command buffer size in MB (the game's default is 2; 2 restores it)");

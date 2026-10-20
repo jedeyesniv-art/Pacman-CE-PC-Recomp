@@ -67,8 +67,9 @@ Fix (src\pacman_app.h): CreateAchievementNotificationDialog() returns nullptr (n
 achievements still recorded, F7 lists them) and host_present_from_non_ui_thread = true, so the presenter
 presents from the guest output thread once per guest frame, as Xenia does. Result: 5.5 min run, 0.4 s behind
 in total (was 7-18 s), no storm windows, command-buffer interrupt ~1-2 ms after VdSwap.
-The earlier mitigations are still on and should be re-measured now: pacman_fast_gpu_handshake (GPU thread
-now ~98-99% of a core - polling), pacman_command_buffer_mb=8. History of the investigation below.
+Mitigations re-measured afterwards (2026-10-20): pacman_fast_gpu_handshake no longer changes pacing and cost
+~a core of busy-polling, so it is now OFF by default (gameplay: 5.5 min, 0.7 s behind, GPU thread 8-12%).
+pacman_command_buffer_mb=8 kept: no buffer-full waits in gameplay, costs only 6 MB. History below.
 
 ## Known issues
 - (Resolved, see above) Game-logic slowdown in places (owner, 2026-10-20 portable build): presented frame rate stays constant,
