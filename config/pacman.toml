@@ -30,9 +30,11 @@ savevmx_14_address = 0x8215B050
 restvmx_64_address = 0x8215B37C
 savevmx_64_address = 0x8215B0E4
 
-# setjmp / longjmp: not located yet. Omitted for the first run.
-# longjmp_address = 0x????????
-# setjmp_address  = 0x????????
+# setjmp / longjmp (MSVC CRT). jmp_buf: f14-f31 @0, r1 @144, r13-r31 @152, cr @304, lr @308, flag @312.
+# The SEH hook pointer setjmp checks (0x821F6330) is 0 in the image and never written, so the plain
+# path is always taken. Calls (including longjmp's one tail call) become host setjmp/longjmp.
+longjmp_address = 0x8215BC90
+setjmp_address = 0x8215BDB0
 
 # Explicit function boundaries for functions containing jump tables, where
 # XenonAnalyse ended the function too early ("trying to jump outside function").

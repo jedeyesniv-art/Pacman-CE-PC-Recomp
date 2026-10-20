@@ -42,7 +42,11 @@ listed in docs\imports.md. Note: in a one-line cmd /c chain %ERRORLEVEL% is expa
   save/restore helper spacing matches SWA exactly.
 - Save/restore helpers: savegprlr_14 0x820B8760, restgprlr_14 0x820B87B0, savefpr_14 0x820B9620,
   restfpr_14 0x820B966C, savevmx_14 0x8215B050, restvmx_14 0x8215B2E8, savevmx_64 0x8215B0E4, restvmx_64 0x8215B37C
-- setjmp/longjmp: not located yet (omitted from config).
+- setjmp 0x8215BDB0, longjmp 0x8215BC90 (MSVC CRT; set in pacman.toml, 2026-10-20). 5 setjmp and 8 longjmp
+  call sites (one a tail call) all become host setjmp/longjmp. setjmp's SEH hook pointer 0x821F6330 is 0 in
+  the image and never written, so longjmp's RtlUnwind path is never taken.
+- sub_821B7F8C is NOT longjmp: restores from a CONTEXT record (GPRs @136, FPSCR @288, FPRs @408) and jumps
+  to r3 - likely an exception-handling continuation helper.
 
 ## Status / open issues (fourth recompile run, 2026-10-20)
 Recompile completes cleanly (100%) with an empty log, and the generated code contains no __builtin_debugtrap().
