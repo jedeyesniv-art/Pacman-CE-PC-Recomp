@@ -12,7 +12,7 @@ Game data comes from the owner's own console dump and is never committed or shar
 - tools\xenonRecomp\       XenonRecomp source + build\ (separate clone, not tracked by this repo)
 - patches\xenonRecomp\     our XenonRecomp changes as format-patch files, based on upstream ddd128b.
                            Restore into a fresh clone: git -C tools\xenonRecomp am patches\xenonRecomp\*.patch
-                           After new commits on pacman-instructions, regenerate:
+                           After new commits on pacman-instructions, delete the old *.patch files and regenerate:
                            git -C tools\xenonRecomp format-patch ddd128b..pacman-instructions -o C:\PacManRecomp\patches\xenonRecomp
 - tools\ppcinspect.py      disassembler helper (capstone): modes fn / dis / words / bytes
 - tools\find_save_restore.py
@@ -36,21 +36,28 @@ tools\xenonRecomp\build\XenonRecomp\XenonRecomp.exe config\pacman.toml tools\xen
   restfpr_14 0x820B966C, savevmx_14 0x8215B050, restvmx_14 0x8215B2E8, savevmx_64 0x8215B0E4, restvmx_64 0x8215B37C
 - setjmp/longjmp: not located yet (omitted from config).
 
-## Status / open issues (third recompile run, 2026-10-20)
-Recompile completes cleanly (100%) with an empty log: no unrecognized instructions remain.
+## Status / open issues (fourth recompile run, 2026-10-20)
+Recompile completes cleanly (100%) with an empty log, and the generated code contains no __builtin_debugtrap().
+XenonRecomp also emits silent debugtraps for recognized-but-stubbed instructions that it does NOT log, so after
+every recompile also check: grep -n -B3 __builtin_debugtrap ppc/*.cpp
 tools\xenonRecomp is on local branch pacman-instructions (on top of upstream ddd128b; backed up in patches\xenonRecomp):
   a8e7b38 cherry-picked upstream PR #181 (lhbrx, vandc, vsel128, mulhd, eqv, bso/bns, vpkswss)
   da486ee our additions: mulhdu, vaddsws, vavgsw, vminsw, vpkshss(128), vctuxs/vcfpuxws128, stvebx
           (new helpers simde_mm_adds_epi32 / simde_mm_avg_epi32 / simde_mm_vctuxs in ppc_context.h,
           tested vs scalar reference; vpkshss/vctuxs adapted from upstream PR #60, which is stale/unmergeable)
+  fdc35ee our additions: vcmpbfp(128) (+ record form), blrl (indirect call via lr, like bctrl),
+          vupkd3d128 float16_2/float16_4 (simde_mm_cvtph_ps), vpkd3d128 float16_2
+          (simde_mm_vcmpbfp helper and half conversion tested vs scalar reference; D3D lane layout from Xenia)
 Remember vector registers are stored fully reversed (see XenonRecomp README) - pack/select ops need care.
-1. Remaining silent traps: XenonRecomp emits __builtin_debugtrap() for some recognized instructions without
-   logging them. 8 sites in generated code: vcmpbfp x2 (ppc_recomp.15.cpp), vpkd3d128/vupkd3d128 with
-   unsupported pack types x5 (ppc_recomp.2.cpp, ppc_recomp.8.cpp), blrl x1 (ppc_recomp.24.cpp; indirect call).
-   Find them with: grep -n -B3 __builtin_debugtrap ppc/*.cpp
-2. Not yet done: compiling the generated ppc\ code; nothing has run in-game; new instructions untested at runtime.
+1. Half-float caveat: vupkd3d128 unpack uses IEEE halves (like Xenia), but upstream's float16 pack writes 0x7FFF
+   for overflow/NaN. If Xenos treats exponent 31 as a normal number, unpacking such values is wrong.
+2. blrl site sub_821B7F30 looks like MSVC's _CallSettingFrame (C++ EH funclet call; 0x8215C880 probably
+   _NLG_Notify) - unverified. If so it only runs during exception unwinding.
+3. Not yet done: building/linking the full generated ppc\ code (only ppc_recomp.2/8/15/24.cpp were test-compiled
+   with clang-cl -c); nothing has run in-game; new instructions untested at runtime.
 
 Resolved (verified 2026-10-20):
+- Silent debugtraps (8 sites: vcmpbfp 2, vupkd3d128 float16 4, vpkd3d128 float16_2 1, blrl 1) - fdc35ee.
 - Unsupported instructions (110 sites: vaddsws 46, lhbrx 18, vpkshss 14, vminsw 14, vavgsw 8, vandc 5,
   vsel128 2, vctuxs 1, stvebx 1, mulhdu 1) - implemented on the pacman-instructions branch, see above.
 - Function boundaries: all 5 switch-containing functions defined in pacman.toml; no boundary errors.

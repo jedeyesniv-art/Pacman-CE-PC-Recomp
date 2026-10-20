@@ -1,0 +1,179 @@
+From fdc35ee07bf69957ac85833ef439d402ef224844 Mon Sep 17 00:00:00 2001
+From: John <326213404+jedeyesniv-art@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 10:52:48 +0100
+Subject: [PATCH 3/3] Implement vcmpbfp, blrl and float16 vpkd3d128/vupkd3d128
+ types
+
+- vcmpbfp/vcmpbfp128 via new simde_mm_vcmpbfp helper, including the
+  record form (cr6.eq = all elements in bounds)
+- blrl as an indirect call through lr, mirroring bctrl
+- vupkd3d128 float16_2 and float16_4 via simde_mm_cvtph_ps (IEEE halves)
+- vpkd3d128 float16_2; the float16 element conversion is shared with the
+  existing float16_4 case
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ XenonRecomp/recompiler.cpp | 77 +++++++++++++++++++++++++++++---------
+ XenonUtils/ppc_context.h   |  9 +++++
+ 2 files changed, 69 insertions(+), 17 deletions(-)
+
+diff --git a/XenonRecomp/recompiler.cpp b/XenonRecomp/recompiler.cpp
+index ae89f63..57829ff 100644
+--- a/XenonRecomp/recompiler.cpp
++++ b/XenonRecomp/recompiler.cpp
+@@ -712,7 +712,12 @@ bool Recompiler::Recompile(
+         break;
+ 
+     case PPC_INST_BLRL:
+-        println("__builtin_debugtrap();");
++        // the target is read from lr before lr is overwritten with the return address
++        println("\t{}.u64 = ctx.lr;", temp());
++        if (!config.skipLr)
++            println("\tctx.lr = 0x{:X};", base + 4);
++        println("\tPPC_CALL_INDIRECT_FUNC({}.u32);", temp());
++        csrState = CSRState::Unknown; // the call could change it
+         break;
+ 
+     case PPC_INST_BLT:
+@@ -1896,7 +1901,16 @@ bool Recompiler::Recompile(
+ 
+     case PPC_INST_VCMPBFP:
+     case PPC_INST_VCMPBFP128:
+-        println("\t__builtin_debugtrap();");
++        printSetFlushMode(true);
++        println("\tsimde_mm_store_si128((simde__m128i*){}.u32, simde_mm_vcmpbfp(simde_mm_load_ps({}.f32), simde_mm_load_ps({}.f32)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]));
++        if (strchr(insn.opcode->name, '.'))
++        {
++            // only eq is defined: set when every element is within bounds
++            println("\t{}.lt = 0;", cr(6));
++            println("\t{}.gt = 0;", cr(6));
++            println("\t{}.eq = simde_mm_movemask_epi8(simde_mm_cmpeq_epi32(simde_mm_load_si128((simde__m128i*){}.u32), simde_mm_setzero_si128())) == 0xFFFF;", cr(6), v(insn.operands[0]));
++            println("\t{}.so = 0;", cr(6));
++        }
+         break;
+ 
+     case PPC_INST_VCMPEQFP:
+@@ -2064,8 +2078,27 @@ bool Recompiler::Recompile(
+     }
+ 
+     case PPC_INST_VPKD3D128:
++    {
+         // TODO: vectorize somehow?
+         // NOTE: handling vector reversal here too
++        // converts source float u32[src] to a half in destination u16[dst]
++        auto printPackFloat16 = [&](size_t src, size_t dst)
++        {
++            // Strip sign from source
++            println("\t{}.u32 = ({}.u32[{}]&0x7FFFFFFF);", temp(), v(insn.operands[1]), src);
++            // If |source| is > 65504, clamp output to 0x7FFF, else save 8 exponent bits
++            println("\t{0}.u8[0] = ({1}.f32 != {1}.f32) || ({1}.f32 > 65504.0f) ? 0xFF : (({2}.u32[{3}]&0x7f800000)>>23);", vTemp(), temp(), v(insn.operands[1]), src);
++            // If 8 exponent bits were saved, it can only be 0x8E at most
++            // If saved, save first 10 bits of mantissa
++            println("\t{}.u16 = {}.u8[0] != 0xFF ? (({}.u32[{}]&0x7FE000)>>13) : 0x0;", temp(), vTemp(), v(insn.operands[1]), src);
++            // If saved and > 127-15, exponent is converted from 8 to 5-bit by subtracting 0x70
++            // If saved but not > 127-15, clamp exponent at 0, add 0x400 to mantissa and shift right by (0x71-exponent)
++            // If right shift is greater than 31 bits, manually clamp mantissa to 0 or else the output of the shift will be wrong
++            println("\t{0}.u16[{1}] = {2}.u8[0] != 0xFF ? ({2}.u8[0] > 0x70 ? ((({2}.u8[0]-0x70)<<10)+{3}.u16) : (0x71-{2}.u8[0] > 31 ? 0x0 : ((0x400+{3}.u16)>>(0x71-{2}.u8[0])))) : 0x7FFF;", v(insn.operands[0]), dst, vTemp(), temp());
++            // Add back original sign
++            println("\t{}.u16[{}] |= (({}.u32[{}]&0x80000000)>>16);", v(insn.operands[0]), dst, v(insn.operands[1]), src);
++        };
++
+         printSetFlushMode(true);
+         switch (insn.operands[2])
+         {
+@@ -2083,26 +2116,21 @@ bool Recompiler::Recompile(
+             println("\t{}.u32[{}] = {}.u32;", v(insn.operands[0]), insn.operands[4], temp());
+             break;
+ 
++        case 3: // float16_2
++            if (insn.operands[3] != 1 || (insn.operands[0] == insn.operands[1] && insn.operands[4] >= 2))
++                fmt::println("Unexpected float16_2 pack instruction at {:X}", base);
++
++            // x goes to the high half and y to the low half of 32-bit word "shift"
++            for (size_t i = 3; i >= 2; i--)
++                printPackFloat16(i, i - 2 + 2 * insn.operands[4]);
++            break;
++
+         case 5: // float16_4
+             if (insn.operands[3] != 2 || insn.operands[4] > 2)
+                 fmt::println("Unexpected float16_4 pack instruction at {:X}", base);
+ 
+             for (size_t i = 0; i < 4; i++)
+-            {
+-        		// Strip sign from source
+-        		println("\t{}.u32 = ({}.u32[{}]&0x7FFFFFFF);", temp(), v(insn.operands[1]), i);
+-        		// If |source| is > 65504, clamp output to 0x7FFF, else save 8 exponent bits 
+-        		println("\t{0}.u8[0] = ({1}.f32 != {1}.f32) || ({1}.f32 > 65504.0f) ? 0xFF : (({2}.u32[{3}]&0x7f800000)>>23);", vTemp(), temp(), v(insn.operands[1]), i);
+-        		// If 8 exponent bits were saved, it can only be 0x8E at most
+-        		// If saved, save first 10 bits of mantissa
+-        		println("\t{}.u16 = {}.u8[0] != 0xFF ? (({}.u32[{}]&0x7FE000)>>13) : 0x0;", temp(), vTemp(), v(insn.operands[1]), i);
+-        		// If saved and > 127-15, exponent is converted from 8 to 5-bit by subtracting 0x70
+-        		// If saved but not > 127-15, clamp exponent at 0, add 0x400 to mantissa and shift right by (0x71-exponent)
+-        		// If right shift is greater than 31 bits, manually clamp mantissa to 0 or else the output of the shift will be wrong
+-        		println("\t{0}.u16[{1}] = {2}.u8[0] != 0xFF ? ({2}.u8[0] > 0x70 ? ((({2}.u8[0]-0x70)<<10)+{3}.u16) : (0x71-{2}.u8[0] > 31 ? 0x0 : ((0x400+{3}.u16)>>(0x71-{2}.u8[0])))) : 0x7FFF;", v(insn.operands[0]), i+(2*insn.operands[4]), vTemp(), temp());
+-        		// Add back original sign
+-        		println("\t{}.u16[{}] |= (({}.u32[{}]&0x80000000)>>16);", v(insn.operands[0]), i+(2*insn.operands[4]), v(insn.operands[1]), i);
+-            }
++                printPackFloat16(i, i + 2 * insn.operands[4]);
+             break;
+ 
+         default:
+@@ -2110,6 +2138,7 @@ bool Recompiler::Recompile(
+             break;
+         }
+         break;
++    }
+ 
+     case PPC_INST_VPKSHSS:
+     case PPC_INST_VPKSHSS128:
+@@ -2291,6 +2320,20 @@ bool Recompiler::Recompile(
+             println("\t{} = {};", v(insn.operands[0]), vTemp());
+             break;
+ 
++        case 3: // float16_2
++            // halves of the last 32-bit word (x high, y low) become x, y, 0.0, 1.0
++            println("\tsimde_mm_store_ps({}.f32, simde_mm_cvtph_ps(simde_mm_load_si128((simde__m128i*){}.u16)));", vTemp(), v(insn.operands[1]));
++            println("\t{}.f32[3] = {}.f32[1];", v(insn.operands[0]), vTemp());
++            println("\t{}.f32[2] = {}.f32[0];", v(insn.operands[0]), vTemp());
++            println("\t{}.f32[1] = 0.0f;", v(insn.operands[0]));
++            println("\t{}.f32[0] = 1.0f;", v(insn.operands[0]));
++            break;
++
++        case 5: // float16_4
++            // halves of the last 64 bits become x, y, z, w
++            println("\tsimde_mm_store_ps({}.f32, simde_mm_cvtph_ps(simde_mm_load_si128((simde__m128i*){}.u16)));", v(insn.operands[0]), v(insn.operands[1]));
++            break;
++
+         default:
+             println("\t__builtin_debugtrap();");
+             break;
+diff --git a/XenonUtils/ppc_context.h b/XenonUtils/ppc_context.h
+index ea164ee..9869e3e 100644
+--- a/XenonUtils/ppc_context.h
++++ b/XenonUtils/ppc_context.h
+@@ -13,6 +13,7 @@
+ #include <cstring>
+ 
+ #include <x86/avx.h>
++#include <x86/f16c.h>
+ #include <x86/sse.h>
+ #include <x86/sse4.1.h>
+ 
+@@ -712,6 +713,14 @@ inline simde__m128i simde_mm_vctuxs(simde__m128 src1)
+     return simde_mm_or_si128(dest, overflow);
+ }
+ 
++inline simde__m128i simde_mm_vcmpbfp(simde__m128 a, simde__m128 b)
++{
++    // bit 31 set if a > b, bit 30 set if a < -b; both set if either is NaN
++    simde__m128i le = simde_mm_castps_si128(simde_mm_cmple_ps(a, b));
++    simde__m128i ge = simde_mm_castps_si128(simde_mm_cmpge_ps(a, simde_mm_xor_ps(b, simde_mm_set1_ps(-0.0f))));
++    return simde_mm_or_si128(simde_mm_andnot_si128(le, simde_mm_set1_epi32(INT_MIN)), simde_mm_andnot_si128(ge, simde_mm_set1_epi32(0x40000000)));
++}
++
+ inline simde__m128i simde_mm_vsr(simde__m128i a, simde__m128i b)
+ {
+     b = simde_mm_srli_epi64(simde_mm_slli_epi64(b, 61), 61);
+-- 
+2.55.0.windows.5
+
