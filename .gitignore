@@ -15,6 +15,7 @@ build/
 
 # Logs and inspection dumps (contain disassembly of the game's code)
 *.txt
+!CMakeLists.txt
 
 # Python caches
 __pycache__/

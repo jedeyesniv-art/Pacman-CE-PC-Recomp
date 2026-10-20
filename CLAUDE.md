@@ -15,6 +15,10 @@ Game data comes from the owner's own console dump and is never committed or shar
                            After new commits on pacman-instructions, delete the old *.patch files and regenerate:
                            git -C tools\xenonRecomp format-patch ddd128b..pacman-instructions -o C:\PacManRecomp\patches\xenonRecomp
 - docs\imports.md          the 164 Xbox imports the generated code needs from a host runtime, by subsystem
+- CMakeLists.txt, host\    host program PacManHost.exe (links all of ppc\ + XenonUtils for XEX loading)
+  host\import_stubs.cpp    GENERATED weak logging stubs for every import (tools\gen_import_stubs.py; re-run
+                           after recompiles that change imports). Implement an import by writing a normal
+                           PPC_FUNC(__imp__<Name>) anywhere in host\ - it overrides the weak stub.
 - tools\ppcinspect.py      disassembler helper (capstone): modes fn / dis / words / bytes
 - tools\find_save_restore.py
 
@@ -36,6 +40,21 @@ Compile each ppc\*.cpp from inside ppc\ (16 in parallel takes ~6 s total):
 From Git Bash, prefix MSYS_NO_PATHCONV=1 or the /O2-style flags get mangled into paths. llvm-lib archives the
 objects. A trial link (stub main walking PPCFuncMappings, inside the vcvars64 env) fails only on the imports
 listed in docs\imports.md. Note: in a one-line cmd /c chain %ERRORLEVEL% is expanded at parse time - don't trust it.
+
+## Host program
+Configure once (inside the vcvars64 env, see above), then build:
+  cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=<clang-cl> -DCMAKE_CXX_COMPILER=<clang-cl>
+  cmake --build build
+Run from C:\PacManRecomp: build\PacManHost.exe [path\to\default.xex]   -> log in host_log.txt (also stderr)
+Exit codes: 3 fatal stub (KeBugCheck etc.), 4 host guest-memory region full, 5 indirect call to unmapped
+guest address, 6 host exception (crash report names the sub_XXXXXXXX it happened in, the guest fault address,
+guest regs and the last stub called).
+Guest memory: one 4 GB block (g_base + guest addr), page 0 no-access. Host-owned guest structures (stacks, PCR,
+data-import blocks) come from GuestAlloc in 0x7C000000-0x7FFFFFFF - the game's allocators must avoid it.
+Main thread: r1 = stack top - 0x100, r13 = PCR (Xenia X_KPCR layout: tls 0x0, self 0x30, stack 0x70/0x74,
+current thread 0x100; thread object and TLS slots are zeroed placeholders).
+Loader: XenonUtils leaves type-0 import records byte-swapped; host resolves each to its function thunk
+(matched by name) or, for the 10 data imports, a zeroed 4 KB block.
 
 ## Known facts
 - Code range ~0x82070000-0x821C0000 (~1.5 MB). Same compiler runtime as Sonic Unleashed:
@@ -65,10 +84,12 @@ Remember vector registers are stored fully reversed (see XenonRecomp README) - p
    for overflow/NaN. If Xenos treats exponent 31 as a normal number, unpacking such values is wrong.
 2. blrl site sub_821B7F30 looks like MSVC's _CallSettingFrame (C++ EH funclet call; 0x8215C880 probably
    _NLG_Notify) - unverified. If so it only runs during exception unwinding.
-3. Next: a host runtime. All generated code compiles (27 TUs, 0 errors/warnings, 6245 functions, 9.8 MB lib);
-   linking needs the 164 imports in docs\imports.md. Heavy ones: Vd (GPU, 20) and XAudio/XMA (7); many others
-   can start as stubs. UnleashedRecomp's kernel layer implements most of them - use it as reference.
-   Nothing has run yet; new instructions untested at runtime.
+3. Host runtime started (2026-10-20). First run with all-stub imports: loads, starts the CRT, crashes after the
+   2nd NtAllocateVirtualMemory call (stub doesn't write BaseAddress back) in sub_820632E8 - CRT heap setup.
+   Next: implement imports one blocker at a time, starting with NtAllocateVirtualMemory/Free/Query.
+   Heavy ones later: Vd (GPU, 20) and XAudio/XMA (7). UnleashedRecomp's kernel layer is a reference (check
+   its licence before copying). Known gaps: static TLS (XEX has a TLS header), data imports are zero-filled
+   (KeTimeStampBundle etc. need real contents), PCR/thread object mostly zero.
 
 Resolved (verified 2026-10-20):
 - Full generated-code build: all 27 TUs compile cleanly; trial link leaves only the 164 guest imports.
