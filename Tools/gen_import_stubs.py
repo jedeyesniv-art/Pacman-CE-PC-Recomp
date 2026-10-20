@@ -19,7 +19,6 @@ OUTPUT = ROOT / "host" / "import_stubs.cpp"
 
 # Imports that never return to the caller on real hardware. Their stubs log and stop the host.
 FATAL = {
-    "ExTerminateThread",
     "HalReturnToFirmware",
     "KeBugCheck",
     "KeBugCheckEx",

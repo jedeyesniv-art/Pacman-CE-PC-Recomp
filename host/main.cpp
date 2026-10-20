@@ -3,6 +3,7 @@
 #include "log.h"
 #include "memory.h"
 #include "stubs.h"
+#include "kernel/dispatcher.h"
 #include "kernel/tls_imports.h"
 
 #include <ppc_config.h>
@@ -133,8 +134,16 @@ static DWORD WINAPI GuestMainThread(void*)
         thread.stackLow, thread.stackHigh, thread.pcr, g_xex.entryPoint);
     LogFlush();
 
-    const uint32_t result = CallGuest(thread, g_xex.entryPoint, {});
-    LogPrint("entry point returned (r3=%08X)", result);
+    try
+    {
+        const uint32_t result = CallGuest(thread, g_xex.entryPoint, {});
+        LogPrint("entry point returned (r3=%08X)", result);
+    }
+    catch (const GuestThreadExit& exit)
+    {
+        LogPrint("guest main thread ended through ExTerminateThread (exit code %08X)", exit.exitCode);
+    }
+    DispatcherSetState(thread.threadObject, 1);
     return 0;
 }
 

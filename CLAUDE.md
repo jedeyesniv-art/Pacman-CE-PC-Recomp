@@ -94,12 +94,20 @@ Remember vector registers are stored fully reversed (see XenonRecomp README) - p
    CP_RB_WPTR, running only PM4 packets that write registers/memory - MEM_WRITE, EVENT_WRITE_SHD, COND_WRITE,
    REG_RMW, INDIRECT_BUFFER, INTERRUPT - and fires the interrupt callback for 60 Hz vblank; registers live in
    guest memory at 0x7FC80000). D3D init now completes.
-   Current blocker (threads): ExCreateThread is a stub that writes no handle, so the CreateThread wrapper
-   (sub_820CA7A0) returns NULL; the game then shuts D3D down and main() returns 0 (CRT prints
-   "[XAPI RETURN VALUE] 0", then XamLoaderTerminateTitle).
-   Next: ExCreateThread + the waits/events it needs; real Rtl*CriticalSection once there are threads.
-   Interrupt callbacks run guest code on the GPU host thread concurrently with the main thread; spinlock and
-   IRQL imports are still stubs, so that is unsynchronised.
+   Threads & sync (host\kernel\thread_imports.cpp, sync_imports.cpp, dispatcher.cpp, handles.cpp): one host
+   thread per guest thread; ExTerminateThread throws GuestThreadExit to unwind to the thread entry. Dispatcher
+   objects (KEVENT/KSEMAPHORE/KTHREAD) keep their signal state in guest memory (+4) under one host lock;
+   waiters re-check every 10 ms in case guest code changes a state directly. Handles 0xF8000004+, pseudo
+   handle 0xFFFFFFFE = current thread. Critical sections are host locks keyed by guest address; spinlocks
+   are real (atomic on the guest word); IRQL not modelled. KeQueryPerformanceFrequency reports the host TSC
+   rate, because XenonRecomp emits mftb as __rdtsc().
+   The game now creates its two D3D worker threads, finishes video setup, registers an XAudio client,
+   starts networking, queries sign-in state, then opens files.
+   Current blocker (files): NtCreateFile etc. are stubs. First files: game:\media\font_ranking.xpr (data is
+   in private\media, private\data). With the stub, NtQueryInformationFile gives a garbage size, a 1 GB
+   allocation fails, and the game calls XamLoaderLaunchTitle (exit to dashboard).
+   Next: file system - map game:\ to private\, NtCreateFile/NtReadFile/NtQueryInformationFile/
+   NtQueryFullAttributesFile/NtClose for files, RtlInitAnsiString and friends.
    Physical addresses: phys = (va & 0x1FFFFFFF) + 0x1000 if va >= 0xE0000000 (D3D inlines this in
    sub_82070038). Each physical window owns a slice of physical RAM so GuestPhysicalToVirtual is exact:
    64K pages phys 0-0x0FFFFFFF @0xA0000000, 16M pages 0x10000000-0x13FFFFFF @0xD0000000, 4K pages

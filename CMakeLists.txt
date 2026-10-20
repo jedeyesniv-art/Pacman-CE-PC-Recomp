@@ -27,6 +27,10 @@ add_executable(PacManHost
     host/kernel/guest_heap.cpp
     host/kernel/memory_imports.cpp
     host/kernel/tls_imports.cpp
+    host/kernel/dispatcher.cpp
+    host/kernel/handles.cpp
+    host/kernel/thread_imports.cpp
+    host/kernel/sync_imports.cpp
     host/gpu/null_gpu.cpp
     ${PPC_SOURCES}
 )

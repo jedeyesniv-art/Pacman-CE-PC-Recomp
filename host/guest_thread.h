@@ -10,10 +10,17 @@
 struct GuestThread
 {
     PPCContext* ctx;
+    uint32_t id;
     uint32_t stackLow;
     uint32_t stackHigh;
     uint32_t pcr;
-    uint32_t threadObject; // zeroed placeholder KTHREAD
+    uint32_t threadObject; // KTHREAD: a dispatcher header (signaled when the thread ends), otherwise zeroed
+};
+
+// Thrown by ExTerminateThread to unwind the host thread back to its entry function.
+struct GuestThreadExit
+{
+    uint32_t exitCode;
 };
 
 // Creates a context with its own guarded stack, PCR and thread object. cpu goes in the PCR's current-CPU
@@ -24,5 +31,6 @@ GuestThread CreateGuestThread(uint32_t stackSize, uint8_t cpu, bool dpcActive);
 // The stack pointer is reset to the top of the context's stack first. Returns r3.
 uint32_t CallGuest(GuestThread& thread, uint32_t function, std::initializer_list<uint32_t> args);
 
-// The context the calling host thread is running guest code with, or null.
+// The context / thread the calling host thread is running guest code with, or null.
 PPCContext* CurrentGuestContext();
+GuestThread* CurrentGuestThread();
