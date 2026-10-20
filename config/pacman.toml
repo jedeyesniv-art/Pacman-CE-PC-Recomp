@@ -1,0 +1,51 @@
+# XenonRecomp config for Pac-Man Championship Edition (Xbox 360 / XBLA)
+# All paths are relative to this file's folder (C:\PacManRecomp\config\)
+
+[main]
+file_path = "../private/default.xex"
+out_directory_path = "../ppc"
+switch_table_file_path = "switch_tables.toml"
+# No title update file (.xexp) for now. If your dump included one, add:
+# patch_file_path = "../private/default.xexp"
+# patched_file_path = "../private/default_patched.xex"
+
+# Optimizations - all OFF until we have a working build (per XenonRecomp's advice)
+skip_lr = false
+skip_msr = false
+ctr_as_local = false
+xer_as_local = false
+reserved_as_local = false
+cr_as_local = false
+non_argument_as_local = false
+non_volatile_as_local = false
+
+# Register save/restore helpers (found by find_save_restore.py; spacing verified
+# against Sonic Unleashed's layout)
+restgprlr_14_address = 0x820B87B0
+savegprlr_14_address = 0x820B8760
+restfpr_14_address = 0x820B966C
+savefpr_14_address = 0x820B9620
+restvmx_14_address = 0x8215B2E8
+savevmx_14_address = 0x8215B050
+restvmx_64_address = 0x8215B37C
+savevmx_64_address = 0x8215B0E4
+
+# setjmp / longjmp: not located yet. Omitted for the first run.
+# longjmp_address = 0x????????
+# setjmp_address  = 0x????????
+
+# Explicit function boundaries for functions containing jump tables, where
+# XenonAnalyse ended the function too early ("trying to jump outside function").
+functions = [
+    { address = 0x82196C68, size = 0x188 }, # switch at 82196C84 - leaf fn, checked
+    { address = 0x8219C030, size = 0x194 }, # switch at 8219C03C - start corrected by hand
+    { address = 0x8219D878, size = 0x94 },  # switch at 8219D898 - leaf fn, checked
+    { address = 0x820AB008, size = 0x124 }, # switch at 820AB01C - sits between .pdata fns 820AAF70 and 820AB130
+    { address = 0x820EE348, size = 0x150 }, # switch at 820EE3CC - starts after padding at 820EE344; runs to next .pdata fn 820EE498
+]
+
+# Byte values the recompiler should skip rather than treat as code.
+# Padding only for now; we'll add entries if the first run hits non-code data.
+invalid_instructions = [
+    { data = 0x00000000, size = 4 }, # Padding
+]
