@@ -90,15 +90,20 @@ Remember vector registers are stored fully reversed (see XenonRecomp README) - p
    GuestHeap: virtual 4K 0x00010000-0x3FFFFFFF, virtual 64K 0x40000000-0x7BFFFFFF, physical windows
    0xA0000000/0xC0000000/0xE0000000 - not aliased to each other); dynamic TLS (host\kernel\tls_imports.cpp,
    64 slots from the XEX TLS header, values per host thread; the header has no static TLS data and no guest
-   code reads r13+0). The CRT now initialises fully and the game reaches D3D/GPU init (Vd* stubs).
-   Current blocker (GPU): D3D waits in sub_82065018 (called from sub_8206F728) for the ring-buffer read
-   pointer (write-back address from VdEnableRingBufferRPtrWriteBack, device+10768) to reach the write
-   pointer, which the game sets via GPU register CP_RB_WPTR (0x7FC80714). Its 5000-tick timeout reads
-   current thread object (PCR+0x100) +88, which is zero, so it never fires. ExCreateThread (stub) was the last
-   import before the hang but is not the cause.
-   Options: a minimal "null GPU" that consumes the ring buffer instantly (catch CP_RB_WPTR writes, update the
-   read-pointer write-back), plus the graphics interrupt callback (VdSetGraphicsInterruptCallback) for vblank.
-   Also still stubs: Rtl*CriticalSection (no locking - fine single-threaded), ExCreateThread.
+   code reads r13+0); null GPU (host\gpu\null_gpu.cpp: a host thread executes the ring buffer from
+   CP_RB_WPTR, running only PM4 packets that write registers/memory - MEM_WRITE, EVENT_WRITE_SHD, COND_WRITE,
+   REG_RMW, INDIRECT_BUFFER, INTERRUPT - and fires the interrupt callback for 60 Hz vblank; registers live in
+   guest memory at 0x7FC80000). D3D init now completes.
+   Current blocker (threads): ExCreateThread is a stub that writes no handle, so the CreateThread wrapper
+   (sub_820CA7A0) returns NULL; the game then shuts D3D down and main() returns 0 (CRT prints
+   "[XAPI RETURN VALUE] 0", then XamLoaderTerminateTitle).
+   Next: ExCreateThread + the waits/events it needs; real Rtl*CriticalSection once there are threads.
+   Interrupt callbacks run guest code on the GPU host thread concurrently with the main thread; spinlock and
+   IRQL imports are still stubs, so that is unsynchronised.
+   Physical addresses: phys = (va & 0x1FFFFFFF) + 0x1000 if va >= 0xE0000000 (D3D inlines this in
+   sub_82070038). Each physical window owns a slice of physical RAM so GuestPhysicalToVirtual is exact:
+   64K pages phys 0-0x0FFFFFFF @0xA0000000, 16M pages 0x10000000-0x13FFFFFF @0xD0000000, 4K pages
+   0x14000000-0x1FD00FFF @0xF3FFF000. Guest contexts (stack, PCR, thread object): host\guest_thread.cpp.
    Guest r13 fields the game reads: 0x100 (thread), 0x10C (cpu), 0x150 (dpc active) - matches Xenia's X_KPCR.
    Device registers live at 0x7F000000+ (GPU at 0x7FC80000); the host region stops at 0x7F000000.
    Hang reporter: if nothing is logged for 10 s, the host logs the guest main thread's backtrace and regs.

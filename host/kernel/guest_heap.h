@@ -18,10 +18,11 @@ public:
     uint32_t PageSize() const { return m_pageSize; }
     bool Contains(uint32_t address) const { return address >= m_begin && address < m_end; }
 
-    // Reserves (and optionally commits) size bytes with the given alignment inside [low, high)
-    // (clamped to the heap). Returns the guest address, or 0 if there is no room.
+    // Reserves (and optionally commits) size bytes inside [low, high) (clamped to the heap), aligned so
+    // that (address - alignOrigin) is a multiple of alignment. Returns the guest address, or 0 if there is
+    // no room. alignOrigin must not exceed the heap's start.
     uint32_t Allocate(uint32_t size, uint32_t alignment, bool commit, bool topDown, uint32_t protect,
-        uint32_t low = 0, uint64_t high = UINT64_MAX);
+        uint32_t low = 0, uint64_t high = UINT64_MAX, uint32_t alignOrigin = 0);
 
     // Reserves at a fixed page-aligned address. Fails if any page in the range is in use.
     bool AllocateFixed(uint32_t address, uint32_t size, bool commit, uint32_t protect);

@@ -63,23 +63,25 @@ void GuestHeap::Zero(uint32_t first, uint32_t count)
 }
 
 uint32_t GuestHeap::Allocate(uint32_t size, uint32_t alignment, bool commit, bool topDown, uint32_t protect,
-    uint32_t low, uint64_t high)
+    uint32_t low, uint64_t high, uint32_t alignOrigin)
 {
-    if (size == 0)
+    if (size == 0 || alignOrigin > m_begin)
         return 0;
 
     const uint32_t count = uint32_t((uint64_t(size) + m_pageSize - 1) / m_pageSize);
     const uint32_t step = std::max<uint32_t>(1, alignment / m_pageSize);
 
-    // Candidate page range, with first pages rounded up to the alignment (relative to guest address 0).
+    // Candidate page range, with first pages rounded to the alignment (relative to alignOrigin).
     const uint64_t lowAddress = std::max<uint64_t>(low, m_begin);
     const uint64_t highAddress = std::min<uint64_t>(high, m_end);
     if (highAddress <= lowAddress || highAddress - lowAddress < uint64_t(count) * m_pageSize)
         return 0;
 
     const uint64_t alignBytes = uint64_t(step) * m_pageSize;
-    const uint64_t firstCandidate = (lowAddress + alignBytes - 1) / alignBytes * alignBytes;
-    const uint64_t lastCandidate = (highAddress - uint64_t(count) * m_pageSize) / alignBytes * alignBytes;
+    const auto alignUp = [&](uint64_t a) { return alignOrigin + (a - alignOrigin + alignBytes - 1) / alignBytes * alignBytes; };
+    const auto alignDown = [&](uint64_t a) { return alignOrigin + (a - alignOrigin) / alignBytes * alignBytes; };
+    const uint64_t firstCandidate = alignUp(lowAddress);
+    const uint64_t lastCandidate = alignDown(highAddress - uint64_t(count) * m_pageSize);
     if (lastCandidate < firstCandidate)
         return 0;
 
@@ -100,13 +102,13 @@ uint32_t GuestHeap::Allocate(uint32_t size, uint32_t alignment, bool commit, boo
         if (topDown)
         {
             const uint64_t usedAddress = PageAddress(used);
-            if (usedAddress < span)
+            if (usedAddress < uint64_t(alignOrigin) + span)
                 break;
-            address = (usedAddress - span) / alignBytes * alignBytes;
+            address = alignDown(usedAddress - span);
         }
         else
         {
-            address = (uint64_t(PageAddress(used)) + m_pageSize + alignBytes - 1) / alignBytes * alignBytes;
+            address = alignUp(uint64_t(PageAddress(used)) + m_pageSize);
         }
     }
     return 0;

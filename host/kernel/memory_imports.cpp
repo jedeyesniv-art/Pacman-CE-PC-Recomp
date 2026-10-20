@@ -1,5 +1,6 @@
 // Virtual and physical memory imports (Nt*VirtualMemory, Mm*PhysicalMemory and queries).
 // Heap layout and argument order follow Xenia (xboxkrnl_memory.cc).
+#include "memory_imports.h"
 #include "guest_heap.h"
 #include "xbox.h"
 #include "log.h"
@@ -17,11 +18,28 @@ constexpr uint32_t LoggedCalls = 32;
 static GuestHeap g_virtual4k("virtual 4K", 0x00010000, 0x40000000, 0x1000);
 static GuestHeap g_virtual64k("virtual 64K", 0x40000000, HostRegionBegin, 0x10000);
 
-// Physical memory windows. Real hardware maps all three onto the same 512 MB of RAM; here they are
-// separate guest ranges, so the same physical page is not visible through two windows.
-static GuestHeap g_physical64k("physical 64K", 0xA0000000, 0xC0000000, 0x10000);
-static GuestHeap g_physical16m("physical 16M", 0xC0000000, 0xE0000000, 0x1000000);
-static GuestHeap g_physical4k("physical 4K", 0xE0000000, 0x100000000ull, 0x1000);
+// Physical memory windows. Real hardware maps all three onto the same 512 MB of RAM. Here each window
+// owns its own slice of physical RAM, so a physical address belongs to exactly one window and the GPU can
+// map it back (GuestPhysicalToVirtual). The guest address is window base + physical address:
+//   64K pages: physical 0x00000000-0x0FFFFFFF at 0xA0000000
+//   16M pages: physical 0x10000000-0x13FFFFFF at 0xD0000000
+//   4K pages:  physical 0x14000000-0x1FD00FFF at 0xF3FFF000 (this window is offset by 0x1000; it ends at
+//              0xFFD00000 as in Xenia, since higher pages would map past 512 MB)
+struct PhysicalWindow
+{
+    GuestHeap& heap;
+    uint32_t base;          // guest address of physical 0 in this window
+    uint32_t physicalLow;   // physical slice owned by this window
+    uint32_t physicalHigh;
+};
+
+static GuestHeap g_physical64k("physical 64K", 0xA0000000, 0xB0000000, 0x10000);
+static GuestHeap g_physical16m("physical 16M", 0xD0000000, 0xD4000000, 0x1000000);
+static GuestHeap g_physical4k("physical 4K", 0xF3FFF000, 0xFFD00000, 0x1000);
+
+static const PhysicalWindow g_window64k{ g_physical64k, 0xA0000000, 0x00000000, 0x10000000 };
+static const PhysicalWindow g_window16m{ g_physical16m, 0xC0000000, 0x10000000, 0x14000000 };
+static const PhysicalWindow g_window4k{ g_physical4k, 0xDFFFF000, 0x14000000, 0x1FD01000 };
 
 static GuestHeap* const g_virtualHeaps[] = { &g_virtual4k, &g_virtual64k };
 static GuestHeap* const g_allHeaps[] = { &g_virtual4k, &g_virtual64k, &g_physical64k, &g_physical16m, &g_physical4k };
@@ -190,13 +208,19 @@ PPC_FUNC(__imp__MmAllocatePhysicalMemoryEx)
     const uint32_t flags = ctx.r3.u32, size = ctx.r4.u32, protect = ctx.r5.u32;
     const uint32_t minAddress = ctx.r6.u32, maxAddress = ctx.r7.u32, alignment = ctx.r8.u32;
 
-    GuestHeap& heap = (protect & X_MEM_LARGE_PAGES) ? g_physical64k : (protect & X_MEM_16MB_PAGES) ? g_physical16m : g_physical4k;
+    const PhysicalWindow& window = (protect & X_MEM_LARGE_PAGES) ? g_window64k : (protect & X_MEM_16MB_PAGES) ? g_window16m : g_window4k;
+    GuestHeap& heap = window.heap;
 
-    // min/max are physical addresses (0 - 512 MB); map them into the window.
-    const uint64_t low = uint64_t(heap.Begin()) + std::min<uint32_t>(minAddress, 0x1FFFFFFF);
-    const uint64_t high = uint64_t(heap.Begin()) + uint64_t(std::min<uint32_t>(maxAddress, 0x1FFFFFFF)) + 1;
-    const uint32_t align = std::max(alignment, heap.PageSize());
-    const uint32_t address = heap.Allocate(size, align, true, true, protect, uint32_t(low), high);
+    // min/max are physical addresses; limit them to the window's slice and map them into the window.
+    const uint32_t physicalLow = std::max(minAddress, window.physicalLow);
+    const uint64_t physicalHigh = std::min<uint64_t>(uint64_t(maxAddress) + 1, window.physicalHigh);
+    uint32_t address = 0;
+    if (physicalHigh > physicalLow)
+    {
+        const uint32_t align = std::max(alignment, heap.PageSize());
+        // Alignment is physical, so align relative to the window base (the 4K window is offset by 0x1000).
+        address = heap.Allocate(size, align, true, true, protect, window.base + physicalLow, window.base + physicalHigh, window.base);
+    }
 
     if (ShouldLog(calls) || address == 0)
         LogPrint("[mem] MmAllocatePhysicalMemoryEx(flags=%X size=%08X protect=%08X min=%08X max=%08X align=%X) -> %08X (%s)",
@@ -250,14 +274,30 @@ PPC_FUNC(__imp__MmQueryAddressProtect)
     ctx.r3.u64 = protect;
 }
 
+// Physical windows map onto the low 512 MB; the 0xE0000000 window is offset by 0x1000. D3D inlines the
+// same calculation (sub_82070038), so this must match it exactly.
+uint32_t GuestVirtualToPhysical(uint32_t address)
+{
+    return (address & 0x1FFFFFFF) + (address >= 0xE0000000 ? 0x1000 : 0);
+}
+
+uint32_t GuestPhysicalToVirtual(uint32_t physical)
+{
+    const uint32_t offset = physical & 0x1FFFFFFF;
+    for (const PhysicalWindow* window : { &g_window64k, &g_window16m, &g_window4k })
+    {
+        if (offset >= window->physicalLow && offset < window->physicalHigh)
+            return window->base + offset;
+    }
+    return 0;
+}
+
 // u32 MmGetPhysicalAddress(u32 address)
-// Physical windows map onto the low 512 MB. Xenia also adds 0x1000 for the 0xE0000000 window; not done
-// here until something (the GPU side) depends on it.
 PPC_FUNC(__imp__MmGetPhysicalAddress)
 {
     static std::atomic<uint32_t> calls;
     const uint32_t address = ctx.r3.u32;
-    const uint32_t physical = address & 0x1FFFFFFF;
+    const uint32_t physical = GuestVirtualToPhysical(address);
 
     if (ShouldLog(calls))
         LogPrint("[mem] MmGetPhysicalAddress(%08X) -> %08X", address, physical);

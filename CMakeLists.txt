@@ -18,6 +18,7 @@ file(GLOB PPC_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/ppc/*.cpp)
 
 add_executable(PacManHost
     host/main.cpp
+    host/guest_thread.cpp
     host/loader.cpp
     host/log.cpp
     host/memory.cpp
@@ -26,6 +27,7 @@ add_executable(PacManHost
     host/kernel/guest_heap.cpp
     host/kernel/memory_imports.cpp
     host/kernel/tls_imports.cpp
+    host/gpu/null_gpu.cpp
     ${PPC_SOURCES}
 )
 
@@ -36,4 +38,4 @@ target_include_directories(PacManHost BEFORE PRIVATE ${CMAKE_SOURCE_DIR}/ppc)
 target_include_directories(PacManHost PRIVATE ${CMAKE_SOURCE_DIR}/host)
 
 target_compile_options(PacManHost PRIVATE -march=sandybridge -fno-strict-aliasing)
-target_link_libraries(PacManHost PRIVATE XenonUtils dbghelp)
+target_link_libraries(PacManHost PRIVATE XenonUtils dbghelp winmm)

@@ -1,3 +1,4 @@
+#include "guest_thread.h"
 #include "loader.h"
 #include "log.h"
 #include "memory.h"
@@ -21,17 +22,9 @@
 constexpr size_t GuestThreadHostStackSize = 64 * 1024 * 1024;
 constexpr uint32_t DefaultGuestStackSize = 256 * 1024;
 
-// Xbox 360 processor control region fields the CRT reads through r13 (layout as in Xenia's X_KPCR).
-constexpr uint32_t PcrTlsPtr = 0x000;
-constexpr uint32_t PcrSelfPtr = 0x030;
-constexpr uint32_t PcrStackBase = 0x070; // high end of the stack
-constexpr uint32_t PcrStackEnd = 0x074;  // low end of the stack
-constexpr uint32_t PcrCurrentThread = 0x100;
-
 // If nothing is logged for this long, the hang reporter prints where the guest main thread is.
 constexpr DWORD QuietReportMilliseconds = 10000;
 
-static thread_local PPCContext* g_currentContext;
 static PPCContext* g_mainContext; // the guest main thread's context, for the hang reporter
 static XexInfo g_xex;
 
@@ -113,7 +106,7 @@ static LONG CALLBACK CrashHandler(EXCEPTION_POINTERS* info)
             LogPrint("  %s of host address %p", kind, static_cast<const void*>(fault));
     }
 
-    if (PPCContext* ctx = g_currentContext)
+    if (PPCContext* ctx = CurrentGuestContext())
         LogPrint("  guest r1=%08X r3=%08X r4=%08X r5=%08X lr=%08X ctr=%08X",
             ctx->r1.u32, ctx->r3.u32, ctx->r4.u32, ctx->r5.u32, uint32_t(ctx->lr), ctx->ctr.u32);
 
@@ -133,34 +126,15 @@ static DWORD WINAPI GuestMainThread(void*)
     SetThreadStackGuarantee(&guarantee);
 
     const uint32_t stackSize = g_xex.stackSize != 0 ? g_xex.stackSize : DefaultGuestStackSize;
-    const uint32_t stackLow = GuestAllocStack(stackSize);
-    const uint32_t stackHigh = stackLow + stackSize;
-
-    // Only the PCR fields above are filled in; the thread object and TLS slots are zeroed placeholders.
-    const uint32_t pcr = GuestAlloc(0x1000, 0x1000);
-    const uint32_t thread = GuestAlloc(0x1000, 0x1000);
-    const uint32_t tls = GuestAlloc(0x1000, 0x1000);
-    GuestStoreU32(pcr + PcrTlsPtr, tls);
-    GuestStoreU32(pcr + PcrSelfPtr, pcr);
-    GuestStoreU32(pcr + PcrStackBase, stackHigh);
-    GuestStoreU32(pcr + PcrStackEnd, stackLow);
-    GuestStoreU32(pcr + PcrCurrentThread, thread);
-
-    auto* ctx = new PPCContext{};
-    ctx->r1.u64 = stackHigh - 0x100;
-    ctx->r13.u64 = pcr;
-    ctx->fpscr.loadFromHost();
-    g_currentContext = ctx;
-    g_mainContext = ctx;
+    GuestThread thread = CreateGuestThread(stackSize, 0, false);
+    g_mainContext = thread.ctx;
 
     LogPrint("guest main thread: stack 0x%08X-0x%08X, pcr 0x%08X; calling entry point 0x%08X",
-        stackLow, stackHigh, pcr, g_xex.entryPoint);
+        thread.stackLow, thread.stackHigh, thread.pcr, g_xex.entryPoint);
     LogFlush();
 
-    PPCFunc* entry = PPC_LOOKUP_FUNC(g_base, g_xex.entryPoint);
-    entry(*ctx, g_base);
-
-    LogPrint("entry point returned (r3=%08X)", ctx->r3.u32);
+    const uint32_t result = CallGuest(thread, g_xex.entryPoint, {});
+    LogPrint("entry point returned (r3=%08X)", result);
     return 0;
 }
 
