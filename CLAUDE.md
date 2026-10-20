@@ -57,8 +57,21 @@ vcruntime140, vcruntime140_1, from VS's VC\Redist), README.txt (rexglue\README-p
 copies the game files into game\ (everything except default.exe). Re-running keeps game\ and userdata\.
 Everything else the binaries import is part of Windows 10/11.
 
+## Gameplay slowdown - SOLVED 2026-10-20 (root cause: host presentation coupled to the guest frame)
+ReXApp always creates an achievement-toast ImGui dialog; any dialog registers ImGui as a UI drawer, which
+forces the presenter to paint on the UI thread at the display refresh rate (the "120 fps"). The game's swap
+then waited about one host refresh per frame for that painting's GPU work (shared D3D12 direct queue):
+8.3 ms at 120 Hz, 16.7 ms at 60 Hz (locked the game to 30 fps). Heavy frames (ghost combos, the board's
+"loop reset") missed their 60 Hz vblank -> lag storms while no thread was busy.
+Fix (src\pacman_app.h): CreateAchievementNotificationDialog() returns nullptr (no achievement pop-ups;
+achievements still recorded, F7 lists them) and host_present_from_non_ui_thread = true, so the presenter
+presents from the guest output thread once per guest frame, as Xenia does. Result: 5.5 min run, 0.4 s behind
+in total (was 7-18 s), no storm windows, command-buffer interrupt ~1-2 ms after VdSwap.
+The earlier mitigations are still on and should be re-measured now: pacman_fast_gpu_handshake (GPU thread
+now ~98-99% of a core - polling), pacman_command_buffer_mb=8. History of the investigation below.
+
 ## Known issues
-- Game-logic slowdown in places (owner, 2026-10-20 portable build): presented frame rate stays constant,
+- (Resolved, see above) Game-logic slowdown in places (owner, 2026-10-20 portable build): presented frame rate stays constant,
   music keeps real-time pace, game falls ~18 s behind over a 5 min run (~6%). No visible CPU/GPU change.
   The game steps once per guest frame, so any frame that misses its 60 Hz slot slows the game.
   Worst when eating ghosts in power mode, especially with the score multiplier maxed (the heaviest frames);

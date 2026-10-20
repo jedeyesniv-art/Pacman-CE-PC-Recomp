@@ -8,12 +8,16 @@
 #include <rex/filesystem.h>
 #include <rex/logging.h>
 #include <rex/rex_app.h>
+#include <rex/ui/overlay/achievement_notification.h>
 
 #include <cstdint>
 #include <filesystem>
 
 // XamContentGetLicenseMask returns this; 0 (the SDK default) makes the game run as the locked XBLA trial.
 REXCVAR_DECLARE(uint32_t, license_mask);
+// Lets the presenter present from the GPU (guest output) thread after each guest frame instead of painting on
+// the UI thread at the display refresh rate.
+REXCVAR_DECLARE(bool, host_present_from_non_ui_thread);
 
 class PacmanApp : public rex::ReXApp {
  public:
@@ -79,10 +83,22 @@ class PacmanApp : public rex::ReXApp {
   // the command line and config file are read, so a non-zero --license_mask still wins. (As with the GPU
   // default, an explicit 0 can't be told apart from "not set", so trial mode can't be forced this way.)
   void OnPostInitLogging() override {
+    // Present like Xenia does: from the guest output thread, once per guest frame. When the presenter paints on
+    // the UI thread instead (at the display refresh, 120 Hz here), the game's swap ends up waiting about one
+    // host refresh per frame for that painting's GPU work, and heavy frames miss their 60 Hz vblank.
+    REXCVAR_SET(host_present_from_non_ui_thread, true);
+
     if (REXCVAR_GET(license_mask) == 0)
       REXCVAR_SET(license_mask, 1);
     REXLOG_INFO("license_mask = 0x{:X} ({})", REXCVAR_GET(license_mask),
                 (REXCVAR_GET(license_mask) & 1) ? "full version" : "trial");
+  }
+
+  // No achievement pop-ups. The toast is the one ImGui dialog that always exists, and any dialog registers ImGui
+  // as a UI drawer, which forces the presenter to paint on the UI thread at the display refresh rate (see
+  // OnPostInitLogging). Achievements are still recorded; the F7 overlay still lists them.
+  std::unique_ptr<rex::ui::AchievementNotificationDialog> CreateAchievementNotificationDialog() override {
+    return nullptr;
   }
 
   // void OnLoadXexImage(std::string& xex_image) override {}

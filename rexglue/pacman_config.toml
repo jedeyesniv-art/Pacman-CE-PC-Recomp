@@ -56,13 +56,10 @@ address = 0x820676F0
 name = "GpuHandshakeWaitHook"
 registers = ["r6"]
 
-# Same problem in the swap path's flip wait (sub_82067838, conditional on r24 & 4): WAIT_REG_MEM on GPU
-# register 0x1973 (bit 0 == 0, likely "previous flip done"), wait = 0x100 in r15 (used only here).
+# Not hooked: the swap path's flip wait (sub_82067838, conditional on r24 & 4) - WAIT_REG_MEM on GPU register
+# 0x1973 bit 0, wait = 0x100 in r15, stored at 0x8206792C. Giving it wait 0xFF made play worse (2026-10-20):
+# below 0x100 the command processor skips PrepareForWait(), which submits queued work to the host GPU.
 # The other WAIT_REG_MEM builders (sub_8206F3A8, sub_8207A500, sub_8207BA40, sub_8207D7C0) use wait = 8.
-[[midasm_hook]]
-address = 0x8206792C
-name = "GpuHandshakeWaitHook"
-registers = ["r15"]
 
 # D3D command buffer size (src/spin_hooks.cpp). D3D's ring-buffer setup (sub_82070038) reads
 # D3DRING_BUFFER_PARAMETERS: +12 secondary (command buffer) size, default 2 MB; +20 segment count, default 32
