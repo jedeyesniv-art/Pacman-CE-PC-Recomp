@@ -6,6 +6,7 @@
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/ppc.h>
+#include <rex/runtime.h>
 
 #include <algorithm>
 #include <atomic>
@@ -183,6 +184,57 @@ std::string BusiestThreads(double seconds) {
   return text;
 }
 
+// Access violations, counted by a first-in-line vectored handler that only counts and passes them on. Guest
+// writes to GPU registers (and other MMIO) are emulated through deliberate faults; each is cheap on Windows
+// but goes through a Linux signal under Wine/Proton, so the count per frame shows what that path costs.
+// Kinds, matching ReXGlue's MMIOHandler: GPU registers (guest 0x7FC80000-0x7FC8FFFF, emulated on every
+// access), other guest memory (write watches: the GPU emulation protects memory it has cached, e.g. vertex
+// data, to notice the game rewriting it), anything else.
+enum FaultKind { GpuRegisterFault, WatchFault, OtherFault, FaultKinds };
+std::atomic<uint64_t> g_faults[FaultKinds]{};
+std::atomic<uint64_t> g_mainThreadFaults{0};
+std::atomic<DWORD> g_mainThreadId{0};
+std::atomic<uintptr_t> g_virtualMembase{0};
+
+LONG CALLBACK CountAccessViolation(EXCEPTION_POINTERS* info) {
+  const EXCEPTION_RECORD& record = *info->ExceptionRecord;
+  if (record.ExceptionCode != EXCEPTION_ACCESS_VIOLATION || record.NumberParameters < 2)
+    return EXCEPTION_CONTINUE_SEARCH;
+  const uintptr_t address = record.ExceptionInformation[1];
+  const uintptr_t virtualBase = g_virtualMembase.load(std::memory_order_relaxed);
+  FaultKind kind = OtherFault;
+  if (virtualBase != 0 && address >= virtualBase && address - virtualBase < 0x200000000ull) {
+    const uint64_t offset = address - virtualBase;  // the physical view starts 4 GB above the virtual one
+    kind = offset < 0x100000000ull && (offset & 0xFFFF0000) == 0x7FC80000 ? GpuRegisterFault : WatchFault;
+  }
+  g_faults[kind].fetch_add(1, std::memory_order_relaxed);
+  if (GetCurrentThreadId() == g_mainThreadId.load(std::memory_order_relaxed))
+    g_mainThreadFaults.fetch_add(1, std::memory_order_relaxed);
+  return EXCEPTION_CONTINUE_SEARCH;
+}
+
+std::string TakeFaultSummary(uint32_t frames) {
+  static uint64_t last[FaultKinds]{}, lastMain = 0;
+  uint64_t now[FaultKinds], total = 0;
+  for (int i = 0; i < FaultKinds; i++) {
+    now[i] = g_faults[i].load(std::memory_order_relaxed);
+    total += now[i] - last[i];
+  }
+  const uint64_t main = g_mainThreadFaults.load(std::memory_order_relaxed);
+  char text[192];
+  std::snprintf(text, sizeof(text),
+                "access faults %llu (%.0f per frame: GPU registers %llu, write watches %llu, other %llu; "
+                "%llu on the main thread)",
+                (unsigned long long)total, frames ? double(total) / frames : 0.0,
+                (unsigned long long)(now[GpuRegisterFault] - last[GpuRegisterFault]),
+                (unsigned long long)(now[WatchFault] - last[WatchFault]),
+                (unsigned long long)(now[OtherFault] - last[OtherFault]), (unsigned long long)(main - lastMain));
+  for (int i = 0; i < FaultKinds; i++)
+    last[i] = now[i];
+  lastMain = main;
+  return text;
+}
+
 using Clock = std::chrono::steady_clock;
 
 constexpr double GuestFrameSeconds = 1.0 / 60.0;
@@ -213,6 +265,10 @@ void FrameHook() {
     window.start = now;
     gpuWaitAtStart = GpuWaitNanoseconds();
     BusiestThreads(1.0);  // take the baseline
+    if (rex::Runtime* runtime = rex::Runtime::instance())
+      g_virtualMembase = reinterpret_cast<uintptr_t>(runtime->virtual_membase());
+    g_mainThreadId = GetCurrentThreadId();
+    AddVectoredExceptionHandler(1, CountAccessViolation);
     return;
   }
 
@@ -233,10 +289,11 @@ void FrameHook() {
     const double gpuWaitShare = (gpuWait - gpuWaitAtStart) / 1e9 / elapsed;
     gpuWaitAtStart = gpuWait;
     REXLOG_INFO("frames: {} in {:.1f} s ({:.1f} fps), {} over {:.0f} ms, worst {:.1f} ms; game behind by "
-                "{:.0f} ms this window, {:.1f} s total; {}; {}; main thread waiting on GPU {:.0f}%; busiest: {}",
+                "{:.0f} ms this window, {:.1f} s total; {}; {}; main thread waiting on GPU {:.0f}%; "
+                "{}; busiest: {}",
                 window.frames, elapsed, window.frames / elapsed, window.slowFrames, SlowFrameSeconds * 1000,
                 window.worstSeconds * 1000, lost * 1000, totalLostSeconds, TakeVblankSummary(),
-                TakeWaitSummary(), gpuWaitShare * 100, BusiestThreads(elapsed));
+                TakeWaitSummary(), gpuWaitShare * 100, TakeFaultSummary(window.frames), BusiestThreads(elapsed));
     window = Window{now};
   }
 }

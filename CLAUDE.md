@@ -87,6 +87,21 @@ Mitigations re-measured afterwards (2026-10-20): pacman_fast_gpu_handshake no lo
 ~a core of busy-polling, so it is now OFF by default (gameplay: 5.5 min, 0.7 s behind, GPU thread 8-12%).
 pacman_command_buffer_mb=8 kept: no buffer-full waits in gameplay, costs only 6 MB. History below.
 
+## Steam Deck (Proton) - slow, investigated 2026-10-20; next step: native Linux build
+Under Proton the game drops to 30/20 fps (vblank quantisation: 2 or 3 vblanks per frame) as dot grids fill
+the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x800, scale 1x):
+- Bottleneck = GPU command processor: VdSwap -> command-buffer interrupt 10-12 ms per frame at 60 fps
+  (PC: 1-2 ms), 18-23 ms with full dot grids. One thread translating Xenos -> D3D12, then vkd3d-proton
+  D3D12 -> Vulkan, per draw; the overlay averages 8 threads so it doesn't show.
+- Access faults (frame stats now count them): all write watches (none on GPU registers), 1 -> ~100 per frame
+  with dots, ~80% on job-worker threads. Wine makes each costly, but they are not the main cost.
+- Helped: --pacman_fast_gpu_handshake=true (clearly), --d3d12_tiled_shared_memory=false (a little).
+  No effect: gamescope Allow Tearing / 60 Hz, TDP, frame limit.
+- The Windows GPU plugin is D3D12-only. ReXGlue ships linux-amd64 SDK zips (same version; Vulkan backend),
+  so a native Linux build skips Wine and vkd3d. Port needs: ShortSleep (waitable timer), frame_stats
+  (VEH, toolhelp/GetThreadTimes), EnumDisplaySettingsW, pacman.rc. Needs WSL (not installed yet) or another
+  Linux build environment.
+
 ## Known issues
 - (Resolved, see above) Game-logic slowdown in places (owner, 2026-10-20 portable build): presented frame rate stays constant,
   music keeps real-time pace, game falls ~18 s behind over a 5 min run (~6%). No visible CPU/GPU change.
