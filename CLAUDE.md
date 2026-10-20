@@ -118,10 +118,13 @@ pacman_command_buffer_mb=8 kept: no buffer-full waits in gameplay, costs only 6 
   - WAIT_REG_MEM builders: sub_82067570 (2 handshake waits, wait 0x100), sub_82067838 (flip wait on reg 0x1973
     bit 0, wait 0x100, conditional on r24 & 4), sub_8206F3A8 / 8207A500 / 8207BA40 / 8207D7C0 (reg 0xA31,
     wait 8 - fine). The flip wait got the same 0xFF hook (0x8206792C, r15) - awaiting a gameplay test.
-- Intermittent heap-corruption crash (0xC0000374) on exit, inside the SDK: ReXApp::OnDestroy -> ~Runtime ->
-  Runtime::Shutdown -> InputSystem::Shutdown -> input device destructors. Seen in two of the owner's sessions
-  (dumps in %LOCALAPPDATA%\CrashDumps); clean CloseMainWindow() exits worked. Gameplay unaffected.
-  Minidumps can be read without a debugger: exception stream + scanning the thread's stack for module
+- FIXED 2026-10-20: heap-corruption crash (0xC0000374) on every exit not via the window's close button (e.g.
+  quitting from the game's menu): ReXApp::OnDestroy destroys window_ before runtime_, and ~Runtime ->
+  InputSystem::Shutdown -> ~MnkInputDriver -> DetachFromWindow() touched the freed window (it only detaches
+  early on the window's OnClosing). Fix: PacmanApp::OnShutdown (called first in OnDestroy) shuts the input
+  system down while the window exists; InputSystem::Shutdown is idempotent. A ReXGlue bug - worth reporting.
+  Windows writes the dumps silently to %LOCALAPPDATA%\CrashDumps (keeps the newest 10) - check them after
+  changes. Minidumps can be read without a debugger: exception stream + scanning the thread's stack for module
   addresses, then llvm-symbolizer (pacman.pdb) / nearest export (SDK DLLs ship no PDBs).
 
 ## Codegen config notes

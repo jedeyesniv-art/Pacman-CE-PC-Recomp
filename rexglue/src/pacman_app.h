@@ -8,6 +8,8 @@
 #include <rex/filesystem.h>
 #include <rex/logging.h>
 #include <rex/rex_app.h>
+#include <rex/runtime.h>
+#include <rex/system/interfaces/input.h>
 #include <rex/ui/overlay/achievement_notification.h>
 
 #include <cstdint>
@@ -99,6 +101,15 @@ class PacmanApp : public rex::ReXApp {
   // OnPostInitLogging). Achievements are still recorded; the F7 overlay still lists them.
   std::unique_ptr<rex::ui::AchievementNotificationDialog> CreateAchievementNotificationDialog() override {
     return nullptr;
+  }
+
+  // Shut input down while the window still exists. ReXApp::OnDestroy destroys the window before the runtime,
+  // and the runtime's shutdown then destroys the mouse/keyboard input driver, whose destructor detaches from the
+  // already-freed window: heap corruption (0xC0000374) on every exit that doesn't go through the window's
+  // OnClosing (e.g. quitting from the game's menu). InputSystem::Shutdown is safe to call again later.
+  void OnShutdown() override {
+    if (rex::Runtime* rt = runtime(); rt != nullptr && rt->input_system() != nullptr)
+      rt->input_system()->Shutdown();
   }
 
   // void OnLoadXexImage(std::string& xex_image) override {}
