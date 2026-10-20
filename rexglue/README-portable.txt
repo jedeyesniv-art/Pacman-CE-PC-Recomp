@@ -18,7 +18,15 @@ Files
 Requirements
   64-bit Windows 10 or 11 with a Direct3D 12 GPU.
 
+Display
+  The game renders at your main monitor's resolution: its 1280x720 picture is scaled up by a whole number
+  to fill the screen (3x on a 4K screen, 2x on 1440p, 16:10 and ultrawide screens). On a screen or window
+  that isn't 16:9, the picture is never stretched; black bars fill the sides or the top and bottom.
+  Lower the scale if your GPU struggles, e.g. --resolution_scale=1 for the original 720p.
+
 Options (on the command line, e.g. pacman.exe --fullscreen)
+  --fullscreen                               start in fullscreen
+  --resolution_scale=<1-7>                   render scale (default: chosen from the desktop resolution)
   --log_file=pacman.log --log_level=debug   write a log
   --license_mask=<n>                         licence bits (the default, 1, is the full game)
   --game_data_root=<dir>                     use game files from another folder
