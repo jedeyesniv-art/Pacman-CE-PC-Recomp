@@ -56,6 +56,45 @@ address = 0x820676F0
 name = "GpuHandshakeWaitHook"
 registers = ["r6"]
 
+# Same problem in the swap path's flip wait (sub_82067838, conditional on r24 & 4): WAIT_REG_MEM on GPU
+# register 0x1973 (bit 0 == 0, likely "previous flip done"), wait = 0x100 in r15 (used only here).
+# The other WAIT_REG_MEM builders (sub_8206F3A8, sub_8207A500, sub_8207BA40, sub_8207D7C0) use wait = 8.
+[[midasm_hook]]
+address = 0x8206792C
+name = "GpuHandshakeWaitHook"
+registers = ["r15"]
+
+# D3D command buffer size (src/spin_hooks.cpp). D3D's ring-buffer setup (sub_82070038) reads
+# D3DRING_BUFFER_PARAMETERS: +12 secondary (command buffer) size, default 2 MB; +20 segment count, default 32
+# (64 KB segments). In heavy scenes a frame's commands overflow the free part of 2 MB while the GPU is still
+# parked on the previous frame's flip, so the CPU stalls mid-frame in sub_8206EAD8 waiting for the GPU's
+# read position (status block +4) and misses the next vblank. Hooked just after the size default
+# (r25 = size, r11 = segment count) to enlarge the buffer, keeping 64 KB segments.
+[[midasm_hook]]
+address = 0x8207013C
+name = "CommandBufferSizeHook"
+registers = ["r25", "r11"]
+
+# D3D wait timing (src/frame_stats.cpp): the slow paths of the two waits a frame can stall in.
+# Command buffer full - sub_8206EAD8 waits for the GPU's read position to pass the space being reused.
+[[midasm_hook]]
+address = 0x8206EB18
+name = "BufferWaitBeginHook"
+
+[[midasm_hook]]
+address = 0x8206EB60
+name = "BufferWaitEndHook"
+
+# Fence wait - sub_8206F728 waits for the GPU to reach a fence (e.g. the frame-throttling fence at
+# device+14788 when a new command segment starts).
+[[midasm_hook]]
+address = 0x8206F79C
+name = "FenceWaitBeginHook"
+
+[[midasm_hook]]
+address = 0x8206F7DC
+name = "FenceWaitEndHook"
+
 # Vblank-interrupt timing (src/frame_stats.cpp): entry of the game's graphics interrupt callback
 # sub_8206ED50; r3 = source (0 = vblank, which is also when the game flips the front buffer).
 [[midasm_hook]]

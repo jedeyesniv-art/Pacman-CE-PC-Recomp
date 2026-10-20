@@ -8,6 +8,7 @@
 #include <rex/ppc.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -44,6 +45,38 @@ std::mutex g_vblankMutex;
 VblankStats g_vblank;
 
 }  // namespace
+
+// Time spent in D3D's two stalling waits (hooked on their slow paths), read and reset by each report.
+namespace {
+struct WaitTotals {
+  std::atomic<uint64_t> nanoseconds{0};
+  std::atomic<uint32_t> count{0};
+};
+WaitTotals g_bufferWait;
+WaitTotals g_fenceWait;
+thread_local std::chrono::steady_clock::time_point t_bufferWaitStart;
+thread_local std::chrono::steady_clock::time_point t_fenceWaitStart;
+
+void EndWait(WaitTotals& totals, std::chrono::steady_clock::time_point start) {
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  totals.nanoseconds.fetch_add(std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count(),
+                               std::memory_order_relaxed);
+  totals.count.fetch_add(1, std::memory_order_relaxed);
+}
+
+std::string TakeWaitSummary() {
+  char text[160];
+  std::snprintf(text, sizeof(text), "buffer-full waits %u (%.0f ms), fence waits %u (%.0f ms)",
+                g_bufferWait.count.exchange(0), g_bufferWait.nanoseconds.exchange(0) / 1e6,
+                g_fenceWait.count.exchange(0), g_fenceWait.nanoseconds.exchange(0) / 1e6);
+  return text;
+}
+}  // namespace
+
+void BufferWaitBeginHook() { t_bufferWaitStart = std::chrono::steady_clock::now(); }
+void BufferWaitEndHook() { EndWait(g_bufferWait, t_bufferWaitStart); }
+void FenceWaitBeginHook() { t_fenceWaitStart = std::chrono::steady_clock::now(); }
+void FenceWaitEndHook() { EndWait(g_fenceWait, t_fenceWaitStart); }
 
 // Called by FrameHook at each VdSwap.
 void NoteSwap(std::chrono::steady_clock::time_point now) {
@@ -200,10 +233,10 @@ void FrameHook() {
     const double gpuWaitShare = (gpuWait - gpuWaitAtStart) / 1e9 / elapsed;
     gpuWaitAtStart = gpuWait;
     REXLOG_INFO("frames: {} in {:.1f} s ({:.1f} fps), {} over {:.0f} ms, worst {:.1f} ms; game behind by "
-                "{:.0f} ms this window, {:.1f} s total; {}; main thread waiting on GPU {:.0f}%; busiest: {}",
+                "{:.0f} ms this window, {:.1f} s total; {}; {}; main thread waiting on GPU {:.0f}%; busiest: {}",
                 window.frames, elapsed, window.frames / elapsed, window.slowFrames, SlowFrameSeconds * 1000,
                 window.worstSeconds * 1000, lost * 1000, totalLostSeconds, TakeVblankSummary(),
-                gpuWaitShare * 100, BusiestThreads(elapsed));
+                TakeWaitSummary(), gpuWaitShare * 100, BusiestThreads(elapsed));
     window = Window{now};
   }
 }

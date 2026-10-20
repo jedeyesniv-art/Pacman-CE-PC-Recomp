@@ -6,6 +6,7 @@
 // microseconds, then sleep in short steps until the wait ends. Game logic is unchanged.
 
 #include <rex/cvar.h>
+#include <rex/logging.h>
 #include <rex/ppc.h>
 
 #include <atomic>
@@ -24,6 +25,8 @@ REXCVAR_DEFINE_BOOL(pacman_gpu_wait_backoff, true, "Pac-Man",
 // with it off, lag was constant). Costs ~1-2% CPU (the command processor polls instead of sleeping).
 REXCVAR_DEFINE_BOOL(pacman_fast_gpu_handshake, true, "Pac-Man",
                     "Make the GPU poll (not sleep 1 ms) in D3D's per-frame CPU/GPU handshake waits");
+REXCVAR_DEFINE_UINT32(pacman_command_buffer_mb, 8, "Pac-Man",
+                      "D3D command buffer size in MB (the game's default is 2; 2 restores it)");
 
 namespace {
 
@@ -71,6 +74,20 @@ void WorkerPollHook(PPCRegister& r11) {
     idlePolls = 0;
   else
     IdlePoll(idlePolls, WorkerSpinPolls);
+}
+
+// D3D's command buffer: the game uses the defaults (2 MB in 32 segments of 64 KB). Heavy frames overflow the
+// free space while the GPU waits for the previous frame's flip, stalling the CPU mid-frame. Enlarge it, keeping
+// the 64 KB segment size. Only applied when the game left both at their defaults.
+void CommandBufferSizeHook(PPCRegister& size, PPCRegister& segments) {
+  constexpr uint32_t DefaultSize = 0x200000;
+  constexpr uint32_t SegmentSize = 0x10000;
+  const uint32_t megabytes = REXCVAR_GET(pacman_command_buffer_mb);
+  if (size.u32 != DefaultSize || segments.u32 != 0 || megabytes <= 2 || megabytes > 64)
+    return;
+  size.u32 = megabytes * 0x100000;
+  segments.u32 = size.u32 / SegmentSize;
+  REXLOG_INFO("D3D command buffer: {} MB in {} segments (game default 2 MB)", megabytes, segments.u32);
 }
 
 // The wait field of D3D's per-frame handshake WAIT_REG_MEM packets. The command processor sleeps

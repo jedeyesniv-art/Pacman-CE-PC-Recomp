@@ -91,8 +91,19 @@ Everything else the binaries import is part of Windows 10/11.
   - Handshake fix (pacman_fast_gpu_handshake: wait field 0xFF on D3D's two per-frame WAIT_REG_MEM packets in
     sub_82067570, so the command processor polls instead of Sleep(1)): storms remain but are much milder;
     without it lag was constant. On by default; ~1-2% CPU.
-  Next: find what sub_8206F728's mid-frame wait is waiting for (ring/command-buffer space vs a fence) and
-  whether more command space or letting D3D run a frame further ahead removes the stall.
+  - Mid-frame wait decoded: sub_8206FA78 (start a command segment) -> sub_8206EED0 (command-buffer ring
+    allocator, device+14752..14756) -> sub_8206EAD8 waits for the GPU's read position (status block +4) to
+    pass the space being reused = the 2 MB command buffer was full. sub_8206F728 is a fence wait (completed
+    fence = status block +0, CPU counter device+10780; throttling fence device+14788 set in sub_82067A18).
+  - Fix: pacman_command_buffer_mb (default 8): hook in D3D setup sub_82070038 on D3DRING_BUFFER_PARAMETERS
+    (+12 secondary size, default 2 MB; +20 segment count, default 32) -> 8 MB / 128 x 64 KB segments. Only the
+    segment size is stored (device+0x39A8), so more segments is safe. Storm cost 17 -> 10 -> 5.6 s; buffer-full
+    waits now 0.
+  - Owner: storms happen at the board's "loop reset", when it refills with power pellets (seen twice).
+    Remaining storms show 0 buffer-full waits, ~1 fence wait per frame, nothing saturated.
+  - WAIT_REG_MEM builders: sub_82067570 (2 handshake waits, wait 0x100), sub_82067838 (flip wait on reg 0x1973
+    bit 0, wait 0x100, conditional on r24 & 4), sub_8206F3A8 / 8207A500 / 8207BA40 / 8207D7C0 (reg 0xA31,
+    wait 8 - fine). The flip wait got the same 0xFF hook (0x8206792C, r15) - awaiting a gameplay test.
 - Intermittent heap-corruption crash (0xC0000374) on exit, inside the SDK: ReXApp::OnDestroy -> ~Runtime ->
   Runtime::Shutdown -> InputSystem::Shutdown -> input device destructors. Seen in two of the owner's sessions
   (dumps in %LOCALAPPDATA%\CrashDumps); clean CloseMainWindow() exits worked. Gameplay unaffected.
