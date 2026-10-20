@@ -4,10 +4,16 @@
 
 #pragma once
 
+#include <rex/cvar.h>
 #include <rex/filesystem.h>
+#include <rex/logging.h>
 #include <rex/rex_app.h>
 
+#include <cstdint>
 #include <filesystem>
+
+// XamContentGetLicenseMask returns this; 0 (the SDK default) makes the game run as the locked XBLA trial.
+REXCVAR_DECLARE(uint32_t, license_mask);
 
 class PacmanApp : public rex::ReXApp {
  public:
@@ -41,7 +47,16 @@ class PacmanApp : public rex::ReXApp {
       config.gpu_plugin = "xenos";
   }
 
-  // void OnPostInitLogging() override {}
+  // License: bit 0 marks the game as purchased, unlocking the full version instead of the trial. Runs after
+  // the command line and config file are read, so a non-zero --license_mask still wins. (As with the GPU
+  // default, an explicit 0 can't be told apart from "not set", so trial mode can't be forced this way.)
+  void OnPostInitLogging() override {
+    if (REXCVAR_GET(license_mask) == 0)
+      REXCVAR_SET(license_mask, 1);
+    REXLOG_INFO("license_mask = 0x{:X} ({})", REXCVAR_GET(license_mask),
+                (REXCVAR_GET(license_mask) & 1) ? "full version" : "trial");
+  }
+
   // void OnLoadXexImage(std::string& xex_image) override {}
   // void OnPostLoadXexImage() override {}
   // void OnPostSetup() override {}

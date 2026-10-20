@@ -26,7 +26,9 @@ Run (from rexglue\out\build\win-amd64-relwithdebinfo):
 Status 2026-10-20: builds and runs, confirmed by the owner: full video and audio, plays perfectly at 120 fps
 (D3D12, RTX 5070 Ti) with ~9% GPU and ~30% CPU (~35% in gameplay); fans still spin up noticeably.
 Defaults: src\pacman_app.h finds private\ by searching up from the exe and loads the xenos GPU plugin, so
-pacman.exe runs with no arguments.
+pacman.exe runs with no arguments. It also sets license_mask = 1 (what XamContentGetLicenseMask returns;
+bit 0 = purchased) when it is still 0, so the game runs as the full version instead of the XBLA trial.
+A non-zero --license_mask overrides it; the startup log prints the effective value.
 Efficiency pass: the CPU cost was four guest threads each spinning at 100% of a core - job workers 1-3
 (sub_8213ED08/EDE0/EEB8 poll a control word at 0x821EDD30/+8/+16 for state 1, no delay) and the main
 thread in D3D's GPU wait (sub_82065018). Mid-asm hooks (pacman_config.toml -> src\spin_hooks.cpp) spin
