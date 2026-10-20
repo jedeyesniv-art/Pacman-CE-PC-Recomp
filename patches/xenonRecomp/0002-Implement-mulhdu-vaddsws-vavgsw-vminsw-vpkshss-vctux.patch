@@ -1,0 +1,164 @@
+From da486ee03aaccc5fb913dc808ecf8fb665d750ae Mon Sep 17 00:00:00 2001
+From: John <326213404+jedeyesniv-art@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 10:41:29 +0100
+Subject: [PATCH 2/2] Implement mulhdu, vaddsws, vavgsw, vminsw, vpkshss,
+ vctuxs, stvebx
+
+vaddsws, vavgsw and vctuxs use new SIMD helpers in ppc_context.h
+(simde_mm_adds_epi32, simde_mm_avg_epi32, simde_mm_vctuxs), checked
+against scalar reference implementations. mulhdu uses a 128-bit
+unsigned multiply. vpkshss/vctuxs are adapted from PR #60 with the
+vctuxs helper fixed to compile.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ XenonRecomp/recompiler.cpp | 42 ++++++++++++++++++++++++++++++++++++++
+ XenonUtils/ppc_context.h   | 30 +++++++++++++++++++++++++++
+ 2 files changed, 72 insertions(+)
+
+diff --git a/XenonRecomp/recompiler.cpp b/XenonRecomp/recompiler.cpp
+index 804efcd..ae89f63 100644
+--- a/XenonRecomp/recompiler.cpp
++++ b/XenonRecomp/recompiler.cpp
+@@ -1332,6 +1332,12 @@ bool Recompiler::Recompile(
+         println("\t{}.u64 = uint64_t((__int128_t({}.s64) * __int128_t({}.s64)) >> 64);", r(insn.operands[0]), r(insn.operands[1]), r(insn.operands[2]));
+         break;
+ 
++    case PPC_INST_MULHDU:
++        println("\t{}.u64 = uint64_t((__uint128_t({}.u64) * __uint128_t({}.u64)) >> 64);", r(insn.operands[0]), r(insn.operands[1]), r(insn.operands[2]));
++        if (strchr(insn.opcode->name, '.'))
++            println("\t{}.compare<int64_t>({}.s64, 0, {});", cr(0), r(insn.operands[0]), xer());
++        break;
++
+     case PPC_INST_MULHW:
+         println("\t{}.s64 = (int64_t({}.s32) * int64_t({}.s32)) >> 32;", r(insn.operands[0]), r(insn.operands[1]), r(insn.operands[2]));
+         break;
+@@ -1617,6 +1623,15 @@ bool Recompiler::Recompile(
+         println("{}.u32, {}.u16);", r(insn.operands[2]), r(insn.operands[0]));
+         break;
+ 
++    case PPC_INST_STVEBX:
++        // NOTE: accounting for the full vector reversal here
++        print("\t{} = ", ea());
++        if (insn.operands[1] != 0)
++            print("{}.u32 + ", r(insn.operands[1]));
++        println("{}.u32;", r(insn.operands[2]));
++        println("\tPPC_STORE_U8(ea, {}.u8[15 - ({} & 0xF)]);", v(insn.operands[0]), ea());
++        break;
++
+     case PPC_INST_STVEHX:
+         // TODO: vectorize
+         // NOTE: accounting for the full vector reversal here
+@@ -1775,6 +1790,10 @@ bool Recompiler::Recompile(
+         println("\tsimde_mm_store_si128((simde__m128i*){}.s16, simde_mm_adds_epi16(simde_mm_load_si128((simde__m128i*){}.s16), simde_mm_load_si128((simde__m128i*){}.s16)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]));
+         break;
+ 
++    case PPC_INST_VADDSWS:
++        println("\tsimde_mm_store_si128((simde__m128i*){}.s32, simde_mm_adds_epi32(simde_mm_load_si128((simde__m128i*){}.s32), simde_mm_load_si128((simde__m128i*){}.s32)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]));
++        break;
++
+     case PPC_INST_VADDUBM:
+         println("\tsimde_mm_store_si128((simde__m128i*){}.u8, simde_mm_add_epi8(simde_mm_load_si128((simde__m128i*){}.u8), simde_mm_load_si128((simde__m128i*){}.u8)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]));
+         break;
+@@ -1813,6 +1832,10 @@ bool Recompiler::Recompile(
+         println("\tsimde_mm_store_si128((simde__m128i*){}.u8, simde_mm_avg_epi16(simde_mm_load_si128((simde__m128i*){}.u8), simde_mm_load_si128((simde__m128i*){}.u8)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]));
+         break;
+ 
++    case PPC_INST_VAVGSW:
++        println("\tsimde_mm_store_si128((simde__m128i*){}.u8, simde_mm_avg_epi32(simde_mm_load_si128((simde__m128i*){}.u8), simde_mm_load_si128((simde__m128i*){}.u8)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]));
++        break;
++
+     case PPC_INST_VAVGUB:
+         println("\tsimde_mm_store_si128((simde__m128i*){}.u8, simde_mm_avg_epu8(simde_mm_load_si128((simde__m128i*){}.u8), simde_mm_load_si128((simde__m128i*){}.u8)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]));
+         break;
+@@ -1827,6 +1850,16 @@ bool Recompiler::Recompile(
+             println("simde_mm_load_ps({}.f32)));", v(insn.operands[1]));
+         break;
+ 
++    case PPC_INST_VCTUXS:
++    case PPC_INST_VCFPUXWS128:
++        printSetFlushMode(true);
++        print("\tsimde_mm_store_si128((simde__m128i*){}.u32, simde_mm_vctuxs(", v(insn.operands[0]));
++        if (insn.operands[2] != 0)
++            println("simde_mm_mul_ps(simde_mm_load_ps({}.f32), simde_mm_set1_ps({}))));", v(insn.operands[1]), 1u << insn.operands[2]);
++        else
++            println("simde_mm_load_ps({}.f32)));", v(insn.operands[1]));
++        break;
++
+     case PPC_INST_VCFSX:
+     case PPC_INST_VCSXWFP128:
+     {
+@@ -1944,6 +1977,10 @@ bool Recompiler::Recompile(
+         println("\tsimde_mm_store_si128((simde__m128i*){}.u32, simde_mm_max_epi32(simde_mm_load_si128((simde__m128i*){}.u32), simde_mm_load_si128((simde__m128i*){}.u32)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]));
+         break;
+ 
++    case PPC_INST_VMINSW:
++        println("\tsimde_mm_store_si128((simde__m128i*){}.u32, simde_mm_min_epi32(simde_mm_load_si128((simde__m128i*){}.u32), simde_mm_load_si128((simde__m128i*){}.u32)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]));
++        break;
++
+     case PPC_INST_VMINFP:
+     case PPC_INST_VMINFP128:
+         printSetFlushMode(true);
+@@ -2074,6 +2111,11 @@ bool Recompiler::Recompile(
+         }
+         break;
+ 
++    case PPC_INST_VPKSHSS:
++    case PPC_INST_VPKSHSS128:
++        println("\tsimde_mm_store_si128((simde__m128i*){}.u8, simde_mm_packs_epi16(simde_mm_load_si128((simde__m128i*){}.s16), simde_mm_load_si128((simde__m128i*){}.s16)));", v(insn.operands[0]), v(insn.operands[2]), v(insn.operands[1]));
++        break;
++
+     case PPC_INST_VPKSHUS:
+     case PPC_INST_VPKSHUS128:
+         println("\tsimde_mm_store_si128((simde__m128i*){}.u8, simde_mm_packus_epi16(simde_mm_load_si128((simde__m128i*){}.s16), simde_mm_load_si128((simde__m128i*){}.s16)));", v(insn.operands[0]), v(insn.operands[2]), v(insn.operands[1]));
+diff --git a/XenonUtils/ppc_context.h b/XenonUtils/ppc_context.h
+index 31a86cd..ea164ee 100644
+--- a/XenonUtils/ppc_context.h
++++ b/XenonUtils/ppc_context.h
+@@ -641,6 +641,22 @@ inline simde__m128i simde_mm_avg_epi16(simde__m128i a, simde__m128i b)
+     return simde_mm_xor_si128(c, simde_mm_avg_epu16(simde_mm_xor_si128(c, a), simde_mm_xor_si128(c, b)));
+ }
+ 
++inline simde__m128i simde_mm_avg_epi32(simde__m128i a, simde__m128i b)
++{
++    // (a + b + 1) >> 1 without the intermediate overflow
++    return simde_mm_sub_epi32(simde_mm_or_si128(a, b), simde_mm_srai_epi32(simde_mm_xor_si128(a, b), 1));
++}
++
++inline simde__m128i simde_mm_adds_epi32(simde__m128i a, simde__m128i b)
++{
++    simde__m128i sum = simde_mm_add_epi32(a, b);
++    // overflow when a and b share a sign that differs from the sum's sign
++    simde__m128i overflow = simde_mm_srai_epi32(simde_mm_andnot_si128(simde_mm_xor_si128(a, b), simde_mm_xor_si128(a, sum)), 31);
++    // saturate towards a's sign: INT_MAX if positive, INT_MIN if negative
++    simde__m128i saturated = simde_mm_xor_si128(simde_mm_srai_epi32(a, 31), simde_mm_set1_epi32(INT_MAX));
++    return simde_mm_blendv_epi8(sum, saturated, overflow);
++}
++
+ inline simde__m128 simde_mm_cvtepu32_ps_(simde__m128i src1)
+ {
+     simde__m128i xmm1 = simde_mm_add_epi32(src1, simde_mm_set1_epi32(127));
+@@ -682,6 +698,20 @@ inline simde__m128i simde_mm_vctsxs(simde__m128 src1)
+     return simde_mm_andnot_si128(simde_mm_castps_si128(xmm2), simde_mm_castps_si128(dest));
+ }
+ 
++inline simde__m128i simde_mm_vctuxs(simde__m128 src1)
++{
++    // NaN and negative inputs become 0 (max_ps returns the second operand for NaN)
++    simde__m128 xmm0 = simde_mm_max_ps(src1, simde_mm_setzero_ps());
++    // values >= 2^31 don't fit cvttps_epi32, so convert them offset by 2^31 and add it back
++    simde__m128 xmm1 = simde_mm_cmpge_ps(xmm0, simde_mm_set1_ps(2147483648.0f));
++    xmm0 = simde_mm_blendv_ps(xmm0, simde_mm_sub_ps(xmm0, simde_mm_set1_ps(2147483648.0f)), xmm1);
++    simde__m128i dest = simde_mm_cvttps_epi32(xmm0);
++    // values >= 2^32 still overflow to INT_MIN; saturate those to UINT_MAX
++    simde__m128i overflow = simde_mm_cmpeq_epi32(dest, simde_mm_set1_epi32(INT_MIN));
++    dest = simde_mm_add_epi32(dest, simde_mm_and_si128(simde_mm_castps_si128(xmm1), simde_mm_set1_epi32(INT_MIN)));
++    return simde_mm_or_si128(dest, overflow);
++}
++
+ inline simde__m128i simde_mm_vsr(simde__m128i a, simde__m128i b)
+ {
+     b = simde_mm_srli_epi64(simde_mm_slli_epi64(b, 61), 61);
+-- 
+2.55.0.windows.5
+

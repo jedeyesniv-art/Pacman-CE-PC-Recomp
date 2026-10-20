@@ -9,7 +9,11 @@ Game data comes from the owner's own console dump and is never committed or shar
 - config\pacman.toml       main XenonRecomp config
 - config\switch_tables.toml  jump tables from XenonAnalyse (+ manual additions)
 - ppc\                     generated C++ (~30 files). NEVER read wholesale - search it.
-- tools\xenonRecomp\       XenonRecomp source + build\
+- tools\xenonRecomp\       XenonRecomp source + build\ (separate clone, not tracked by this repo)
+- patches\xenonRecomp\     our XenonRecomp changes as format-patch files, based on upstream ddd128b.
+                           Restore into a fresh clone: git -C tools\xenonRecomp am patches\xenonRecomp\*.patch
+                           After new commits on pacman-instructions, regenerate:
+                           git -C tools\xenonRecomp format-patch ddd128b..pacman-instructions -o C:\PacManRecomp\patches\xenonRecomp
 - tools\ppcinspect.py      disassembler helper (capstone): modes fn / dis / words / bytes
 - tools\find_save_restore.py
 
@@ -34,7 +38,7 @@ tools\xenonRecomp\build\XenonRecomp\XenonRecomp.exe config\pacman.toml tools\xen
 
 ## Status / open issues (third recompile run, 2026-10-20)
 Recompile completes cleanly (100%) with an empty log: no unrecognized instructions remain.
-tools\xenonRecomp is on local branch pacman-instructions (on top of upstream ddd128b):
+tools\xenonRecomp is on local branch pacman-instructions (on top of upstream ddd128b; backed up in patches\xenonRecomp):
   a8e7b38 cherry-picked upstream PR #181 (lhbrx, vandc, vsel128, mulhd, eqv, bso/bns, vpkswss)
   da486ee our additions: mulhdu, vaddsws, vavgsw, vminsw, vpkshss(128), vctuxs/vcfpuxws128, stvebx
           (new helpers simde_mm_adds_epi32 / simde_mm_avg_epi32 / simde_mm_vctuxs in ppc_context.h,
