@@ -14,6 +14,7 @@ include(generated/rexglue.cmake)
 set(PACMAN_SOURCES
     src/main.cpp
     src/spin_hooks.cpp
+    src/frame_stats.cpp
 )
 
 if(WIN32)

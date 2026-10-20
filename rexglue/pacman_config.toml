@@ -42,6 +42,11 @@ registers = ["r11"]
 address = 0x8206506C
 name = "GpuWaitPollHook"
 
+# Frame-time monitor (src/frame_stats.cpp): the game's only VdSwap call (bl 0x821BAD0C), once per frame.
+[[midasm_hook]]
+address = 0x82067C64
+name = "FrameHook"
+
 # Padding words to skip rather than treat as code.
 [[invalid_instructions]]
 data = 0x00000000

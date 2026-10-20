@@ -61,13 +61,26 @@ Everything else the binaries import is part of Windows 10/11.
 - Game-logic slowdown in places (owner, 2026-10-20 portable build): presented frame rate stays constant,
   music keeps real-time pace, game falls ~18 s behind over a 5 min run (~6%). No visible CPU/GPU change.
   The game steps once per guest frame, so any frame that misses its 60 Hz slot slows the game.
-  Suspects, to A/B test in the slow spot:
-  1. spin hooks (src\spin_hooks.cpp): wake-up latency (up to ~250 us per sleep) adding up in heavy scenes.
-     Add an on/off cvar and try shorter sleeps / longer spin.
-  2. shader compilation: the portable build started with an empty userdata\cache (the cache used to be in
-     Documents\pacman). Check whether a second run of the same stage is smooth, and whether
-     "Creating graphics pipeline" log lines coincide with the slowdown.
-  3. guest frames taking too long: measure guest FPS/frame time (the SDK has a "Guest: %.1f FPS" display).
+  Worst when eating ghosts in power mode, especially with the score multiplier maxed (the heaviest frames);
+  happens in different spots each run.
+  Shader compilation is unlikely: the cache loads 12 shaders / 13 pipelines at startup and the log shows no
+  errors. Main suspect: the GPU-wait hook - heavy frames fill the ring buffer, so the main thread waits on the
+  GPU several times a frame and each wait can oversleep by up to 250 us; the worker hooks similarly.
+  Tools (src\spin_hooks.cpp, src\frame_stats.cpp):
+    --pacman_gpu_wait_backoff=false / --pacman_worker_backoff=false   turn a hook kind off (original busy-wait)
+    --pacman_frame_stats (default on): every 10 s logs frames, fps, frames over 20 ms, worst frame and
+      "game behind by" (elapsed - frames/60) - the drift the owner measured. FrameHook is on the game's only
+      VdSwap call (0x82067C64).
+  Measured 2026-10-20 in the menu (steady 10 s windows, after the startup window):
+    defaults: 15-46 frames over 20 ms, 84-183 ms lost; both hooks off: 51-121 over 20 ms, 267-433 ms lost
+    (worse - the hooks are NOT the cause); GPU-wait hook off: 9, 84 ms; + timeBeginPeriod(1): 11-13,
+    100-116 ms (no change - timer resolution is not the cause; reverted).
+  Owner played those test instances: the defaults run and the timeBeginPeriod(1) run both felt much better
+  in gameplay, at ~4% CPU. Gameplay is far more affected than the menu, so measure there next.
+  Slow frames are ~33 ms = one missed vblank, so the game is losing 1-2% of frames even in the menu, more in
+  heavy scenes. Next: instrument a slow frame - time spent in D3D's GPU wait during the frame, and vblank
+  gaps (hook the interrupt callback sub_8206ED50, r3 = source, 0 = vblank) - to see whether the GPU side
+  (command processor) or vblank delivery is late.
 - Intermittent heap-corruption crash (0xC0000374) on exit, inside the SDK: ReXApp::OnDestroy -> ~Runtime ->
   Runtime::Shutdown -> InputSystem::Shutdown -> input device destructors. Seen in two of the owner's sessions
   (dumps in %LOCALAPPDATA%\CrashDumps); clean CloseMainWindow() exits worked. Gameplay unaffected.
