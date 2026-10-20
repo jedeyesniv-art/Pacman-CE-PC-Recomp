@@ -8,6 +8,7 @@
 #include <rex/cvar.h>
 #include <rex/ppc.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 
@@ -19,6 +20,10 @@ REXCVAR_DEFINE_BOOL(pacman_worker_backoff, true, "Pac-Man",
                     "Sleep in the job workers' idle polling loops instead of spinning");
 REXCVAR_DEFINE_BOOL(pacman_gpu_wait_backoff, true, "Pac-Man",
                     "Sleep in D3D's wait-for-GPU polling loop instead of spinning");
+// On by default: it doesn't remove the gameplay slowdown but makes it much milder (owner-tested 2026-10-20:
+// with it off, lag was constant). Costs ~1-2% CPU (the command processor polls instead of sleeping).
+REXCVAR_DEFINE_BOOL(pacman_fast_gpu_handshake, true, "Pac-Man",
+                    "Make the GPU poll (not sleep 1 ms) in D3D's per-frame CPU/GPU handshake waits");
 
 namespace {
 
@@ -68,15 +73,34 @@ void WorkerPollHook(PPCRegister& r11) {
     IdlePoll(idlePolls, WorkerSpinPolls);
 }
 
+// The wait field of D3D's per-frame handshake WAIT_REG_MEM packets. The command processor sleeps
+// wait/0x100 ms when the condition isn't met yet, but only yields for wait < 0x100, so it notices the CPU's
+// acknowledgement within microseconds instead of a millisecond or more later.
+void GpuHandshakeWaitHook(PPCRegister& wait) {
+  if (REXCVAR_GET(pacman_fast_gpu_handshake) && wait.u32 >= 0x100)
+    wait.u32 = 0xFF;
+}
+
+// Total time the CPU has spent in D3D's GPU wait, for frame_stats.cpp: the gaps between consecutive polls of
+// the same wait. Measured whether or not the backoff is on, so A/B runs are comparable.
+static std::atomic<uint64_t> g_gpuWaitNanoseconds{0};
+
+uint64_t GpuWaitNanoseconds() {
+  return g_gpuWaitNanoseconds.load(std::memory_order_relaxed);
+}
+
 // D3D's GPU wait: called once per poll while the CPU waits for the GPU to catch up.
 void GpuWaitPollHook() {
-  if (!REXCVAR_GET(pacman_gpu_wait_backoff))
-    return;
   thread_local uint32_t idlePolls = 0;
   thread_local auto lastPoll = std::chrono::steady_clock::time_point{};
   const auto now = std::chrono::steady_clock::now();
-  if (now - lastPoll > NewWaitGap)
-    idlePolls = 0;
-  IdlePoll(idlePolls, GpuWaitSpinPolls);
-  lastPoll = std::chrono::steady_clock::now();
+  const auto sinceLast = now - lastPoll;
+  if (sinceLast > NewWaitGap)
+    idlePolls = 0;  // a new wait
+  else
+    g_gpuWaitNanoseconds.fetch_add(std::chrono::duration_cast<std::chrono::nanoseconds>(sinceLast).count(),
+                                   std::memory_order_relaxed);
+  lastPoll = now;  // gaps run start to start, so they include any sleep below
+  if (REXCVAR_GET(pacman_gpu_wait_backoff))
+    IdlePoll(idlePolls, GpuWaitSpinPolls);
 }

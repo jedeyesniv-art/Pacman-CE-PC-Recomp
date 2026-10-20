@@ -42,6 +42,27 @@ registers = ["r11"]
 address = 0x8206506C
 name = "GpuWaitPollHook"
 
+# Per-frame CPU/GPU handshake (src/spin_hooks.cpp). D3D's swap code (sub_82067570) emits two PM4
+# WAIT_REG_MEM packets that wait for a memory word set by the CPU side, with wait = 0x100. ReXGlue's command
+# processor sleeps wait/0x100 ms per failed check (Windows Sleep(1), often longer), enough to miss a vblank
+# with every thread idle. Hooked on the stores of the wait field; r4 / r6 = wait.
+[[midasm_hook]]
+address = 0x82067620
+name = "GpuHandshakeWaitHook"
+registers = ["r4"]
+
+[[midasm_hook]]
+address = 0x820676F0
+name = "GpuHandshakeWaitHook"
+registers = ["r6"]
+
+# Vblank-interrupt timing (src/frame_stats.cpp): entry of the game's graphics interrupt callback
+# sub_8206ED50; r3 = source (0 = vblank, which is also when the game flips the front buffer).
+[[midasm_hook]]
+address = 0x8206ED50
+name = "InterruptHook"
+registers = ["r3"]
+
 # Frame-time monitor (src/frame_stats.cpp): the game's only VdSwap call (bl 0x821BAD0C), once per frame.
 [[midasm_hook]]
 address = 0x82067C64

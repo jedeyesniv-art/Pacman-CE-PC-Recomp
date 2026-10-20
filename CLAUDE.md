@@ -78,9 +78,21 @@ Everything else the binaries import is part of Windows 10/11.
   Owner played those test instances: the defaults run and the timeBeginPeriod(1) run both felt much better
   in gameplay, at ~4% CPU. Gameplay is far more affected than the menu, so measure there next.
   Slow frames are ~33 ms = one missed vblank, so the game is losing 1-2% of frames even in the menu, more in
-  heavy scenes. Next: instrument a slow frame - time spent in D3D's GPU wait during the frame, and vblank
-  gaps (hook the interrupt callback sub_8206ED50, r3 = source, 0 = vblank) - to see whether the GPU side
-  (command processor) or vblank delivery is late.
+  heavy scenes.
+  Findings from gameplay logs (frame stats now also log per-thread CPU, main-thread GPU-wait share, vblank
+  interrupt timing and command-buffer interrupt delay after VdSwap):
+  - Lag storms (tens of seconds at ~35-45 fps, 2-4 s lost per 10 s) start in heavy scenes (ghost combos) and
+    nothing is busy: main thread ~5-10% CPU and 90-98% waiting on the GPU, "GPU Commands" 5-12%.
+  - Vblank interrupts are perfect (600/10 s, max gap 18 ms) - delivery is not the problem.
+  - Exactly one command-buffer interrupt (source 1) per frame, ~13 ms after VdSwap normally, ~8.5-11 ms in
+    storms: the main thread spends ~25 ms between the flip interrupt and its next VdSwap, waiting on the GPU
+    mid-frame. Likely: heavy frames need more command space than is free, D3D waits for the command
+    processor, which is parked on the previous frame's swap handshake until the flip.
+  - Handshake fix (pacman_fast_gpu_handshake: wait field 0xFF on D3D's two per-frame WAIT_REG_MEM packets in
+    sub_82067570, so the command processor polls instead of Sleep(1)): storms remain but are much milder;
+    without it lag was constant. On by default; ~1-2% CPU.
+  Next: find what sub_8206F728's mid-frame wait is waiting for (ring/command-buffer space vs a fence) and
+  whether more command space or letting D3D run a frame further ahead removes the stall.
 - Intermittent heap-corruption crash (0xC0000374) on exit, inside the SDK: ReXApp::OnDestroy -> ~Runtime ->
   Runtime::Shutdown -> InputSystem::Shutdown -> input device destructors. Seen in two of the owner's sessions
   (dumps in %LOCALAPPDATA%\CrashDumps); clean CloseMainWindow() exits worked. Gameplay unaffected.
