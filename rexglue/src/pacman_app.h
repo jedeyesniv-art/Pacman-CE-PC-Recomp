@@ -9,17 +9,25 @@
 #include <rex/logging.h>
 #include <rex/rex_app.h>
 #include <rex/runtime.h>
+#include <rex/system/gpu_plugin.h>
 #include <rex/system/interfaces/input.h>
 #include <rex/ui/overlay/achievement_notification.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <string>
+
+#include <windows.h> // EnumDisplaySettingsW
 
 // XamContentGetLicenseMask returns this; 0 (the SDK default) makes the game run as the locked XBLA trial.
 REXCVAR_DECLARE(uint32_t, license_mask);
 // Lets the presenter present from the GPU (guest output) thread after each guest frame instead of painting on
 // the UI thread at the display refresh rate.
 REXCVAR_DECLARE(bool, host_present_from_non_ui_thread);
+// Keep the game's 16:9 image unstretched in any window shape (pillar/letterbox bars instead of stretching).
+REXCVAR_DECLARE(bool, present_letterbox);
 
 class PacmanApp : public rex::ReXApp {
  public:
@@ -76,9 +84,16 @@ class PacmanApp : public rex::ReXApp {
 
   // GPU: the SDK leaves GPU emulation off unless a plugin is named. (An explicit empty --gpu_plugin
   // can't be told apart from "not set", so GPU emulation can't be disabled this way any more.)
+  // The plugin is loaded here rather than by ReXApp right after this hook, so its settings (the render
+  // resolution) exist and can be given defaults before the GPU is set up.
   void OnPreSetup(rex::RuntimeConfig& config) override {
     if (config.gpu_plugin.empty())
       config.gpu_plugin = "xenos";
+    if (!config.graphics) {
+      config.graphics = rex::system::LoadGpuPlugin(config.gpu_plugin);
+      if (config.graphics)
+        ApplyDesktopResolutionScale();
+    }
   }
 
   // License: bit 0 marks the game as purchased, unlocking the full version instead of the trial. Runs after
@@ -89,6 +104,9 @@ class PacmanApp : public rex::ReXApp {
     // the UI thread instead (at the display refresh, 120 Hz here), the game's swap ends up waiting about one
     // host refresh per frame for that painting's GPU work, and heavy frames miss their 60 Hz vblank.
     REXCVAR_SET(host_present_from_non_ui_thread, true);
+
+    if (!rex::cvar::HasNonDefaultValue("present_letterbox"))
+      REXCVAR_SET(present_letterbox, true);
 
     if (REXCVAR_GET(license_mask) == 0)
       REXCVAR_SET(license_mask, 1);
@@ -101,6 +119,36 @@ class PacmanApp : public rex::ReXApp {
   // OnPostInitLogging). Achievements are still recorded; the F7 overlay still lists them.
   std::unique_ptr<rex::ui::AchievementNotificationDialog> CreateAchievementNotificationDialog() override {
     return nullptr;
+  }
+
+  // Render resolution from the desktop: the game renders 1280x720 (16:9), so take the largest 16:9 area that
+  // fits the primary display and round its scale up to a whole number (1920x1200 -> 1.5 -> 2, rendered a bit
+  // larger and scaled down). The physical display mode is used, so Windows display scaling doesn't matter.
+  // --resolution_scale / --draw_resolution_scale_x / _y (or the config file) still override it. These settings
+  // belong to the GPU plugin, so they only exist once it is loaded and are set by name.
+  static void ApplyDesktopResolutionScale() {
+    constexpr int32_t GuestWidth = 1280, GuestHeight = 720, MaxScale = 7;
+    for (const char* name : {"resolution_scale", "draw_resolution_scale_x", "draw_resolution_scale_y"}) {
+      if (rex::cvar::GetFlagSource(name) != rex::cvar::Source::kDefault)
+        return;
+    }
+
+    DEVMODEW mode{};
+    mode.dmSize = sizeof(mode);
+    if (!EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS, &mode) || mode.dmPelsWidth == 0 ||
+        mode.dmPelsHeight == 0)
+      return;
+
+    const double fit = std::min(double(mode.dmPelsWidth) / GuestWidth, double(mode.dmPelsHeight) / GuestHeight);
+    const int32_t scale = std::clamp(int32_t(std::ceil(fit - 0.01)), 1, MaxScale);
+    const auto value = std::to_string(scale);
+    if (!rex::cvar::SetFlagByName("draw_resolution_scale_x", value) ||
+        !rex::cvar::SetFlagByName("draw_resolution_scale_y", value)) {
+      REXLOG_WARN("render resolution: couldn't set the scale (GPU plugin settings missing)");
+      return;
+    }
+    REXLOG_INFO("render resolution: {}x (desktop {}x{}, renders {}x{})", scale, mode.dmPelsWidth, mode.dmPelsHeight,
+                GuestWidth * scale, GuestHeight * scale);
   }
 
   // Shut input down while the window still exists. ReXApp::OnDestroy destroys the window before the runtime,

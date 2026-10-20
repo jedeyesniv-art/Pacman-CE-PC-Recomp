@@ -47,6 +47,13 @@ can't be told apart from "not set"):
   the DLL is staged next to the exe)
 - license_mask = 1 (XamContentGetLicenseMask; bit 0 = purchased) so it runs as the full game, not the XBLA
   trial. The startup log prints the effective value.
+- render resolution: the largest 16:9 area fitting the primary display's physical mode, divided by the game's
+  1280x720 and rounded up (4K -> 3, 3440x1440 -> 2, 1920x1200 -> 2); logged as "render resolution: Nx".
+  --resolution_scale / --draw_resolution_scale_x/_y or the config file override it (checked via
+  GetFlagSource). These cvars live in rexgpu-xenos.dll and only exist once it is loaded, so OnPreSetup loads
+  the plugin itself (ReXApp skips loading when config.graphics is set) and sets them with SetFlagByName;
+  REXCVAR_DECLARE on them fails to link.
+- present_letterbox = true: any window/screen shape keeps the 16:9 image unstretched, with black bars.
 
 ## Portable build
   powershell -ExecutionPolicy Bypass -File tools\package_portable.ps1 [-GameData C:\PacManRecomp\private] [-SkipBuild]
