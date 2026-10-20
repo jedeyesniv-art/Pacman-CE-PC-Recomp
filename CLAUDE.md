@@ -1,7 +1,34 @@
 # Pac-Man Championship Edition (Xbox 360 XBLA) - static recompilation
 
-Hobby project: native PC port of Pac-Man CE using XenonRecomp. Windows, VS 2026 (v18), Clang 22.
+Hobby project: native PC port of Pac-Man CE. Windows, VS 2026 (v18), Clang 22.
 Game data comes from the owner's own console dump and is never committed or shared.
+
+## ReXGlue port (branch rexglue, 2026-10-20) - the current approach
+The port moved from XenonRecomp + our own host (still on master) to the ReXGlue SDK
+(github.com/rexglue/rexglue-sdk, BSD-3, Xenia-based: kernel/XAM, D3D12/Vulkan GPU, XMA audio, VFS, input).
+Owner's goal beyond "it runs": Xenia plays CE well but is very GPU-heavy; this port should run light.
+- tools\rexglue-sdk\win-amd64\  prebuilt SDK nightly 0.10.0.24 (downloaded, not tracked). bin\rexglue.exe = CLI.
+- rexglue\                      the ReXGlue project (rexglue init): pacman_manifest.toml includes
+    pacman_config.toml          setjmp/longjmp, our function boundaries, the 0x8208A000 leaf function
+    extra_functions.toml        74 function starts XenonRecomp found but ReXGlue's analysis missed (vtable-only
+                                methods, no .pdata), e.g. 0x82083BA8. NOT the 20 SEH records (word 0x821BAB5C
+                                = __C_specific_handler + scope table, placed before a function) XenonRecomp
+                                mistook for functions - those give "has no blocks - generating stub".
+    src\pacman_app.h            ReXApp subclass (hooks); generated\default\ = codegen output (game code, ignored)
+- ReXGlue auto-detects save/restore helpers and found all 77 jump tables itself; it implements every
+  instruction we had to patch into XenonRecomp.
+Build (vcvars64 env as below, plus VS's LLVM bin on PATH for clang/clang++), from rexglue\:
+  cmake --preset win-amd64-relwithdebinfo -DCMAKE_PREFIX_PATH=C:/PacManRecomp/tools/rexglue-sdk/win-amd64
+  cmake --build --preset win-amd64-relwithdebinfo      (codegen runs as part of the build; ~15 s total)
+Run (from rexglue\out\build\win-amd64-relwithdebinfo):
+  pacman.exe --game_data_root=C:/PacManRecomp/private --gpu_plugin=xenos [--log_file=... --log_level=debug]
+  Without --gpu_plugin=xenos there is no GPU emulation. CMakeLists passes GPU_PLUGINS xenos so the DLL is staged.
+Status 2026-10-20: builds and runs, confirmed by the owner: full video and audio, plays perfectly at 120 fps
+(D3D12, RTX 5070 Ti) with ~9% GPU and ~30% CPU; fans still spin up noticeably. Next: efficiency pass
+(CPU use, frame rate vs the game's native 60 Hz, spin-waits) - measure with --perf_log_csv.
+The game probes game:\media\en-us\ first and falls back to media\ - those NtCreateFile failures are expected.
+
+The sections below describe the XenonRecomp-based work (master), kept for reference.
 
 ## Layout (C:\PacManRecomp)
 - private\default.xex      original executable (do not modify)

@@ -4,8 +4,16 @@ private/
 # Generated C++ from XenonRecomp - can be recreated any time from the config
 ppc/
 
+# Generated C++ from ReXGlue codegen (game code) - recreated by the build
+rexglue/generated/default/
+rexglue/out/
+
 # XenonRecomp is its own Git repository (cloned from GitHub)
 tools/xenonRecomp/
+
+# ReXGlue SDK (prebuilt nightly, downloaded)
+tools/rexglue-sdk/
+tools/rexglue-sdk-dl/
 
 # Build outputs
 build/

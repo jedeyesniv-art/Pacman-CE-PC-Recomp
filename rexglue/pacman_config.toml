@@ -1,0 +1,22 @@
+# Pac-Man CE codegen config for ReXGlue (included from pacman_manifest.toml).
+# Carried over from the XenonRecomp config (config\pacman.toml); see CLAUDE.md for how each was found.
+# Save/restore helpers are detected by ReXGlue itself.
+
+# MSVC CRT setjmp / longjmp. The SEH hook setjmp checks (0x821F6330) is never set, so the plain path is used.
+setjmp_address = 0x8215BDB0
+longjmp_address = 0x8215BC90
+
+# Functions containing jump tables that analysis ended too early.
+[functions]
+0x82196C68 = { size = 0x188 } # switch at 82196C84 - leaf fn, checked
+0x8219C030 = { size = 0x194 } # switch at 8219C03C - start corrected by hand
+0x8219D878 = { size = 0x94 }  # switch at 8219D898 - leaf fn, checked
+0x820AB008 = { size = 0x124 } # switch at 820AB01C - between .pdata fns 820AAF70 and 820AB130
+0x820EE348 = { size = 0x150 } # switch at 820EE3CC - after padding at 820EE344, runs to .pdata fn 820EE498
+# Leaf function reached only by a this-adjusting thunk (b from 8208972C); ReXGlue's analysis missed it.
+0x8208A000 = { size = 0x28 }
+
+# Padding words to skip rather than treat as code.
+[[invalid_instructions]]
+data = 0x00000000
+size = 4
