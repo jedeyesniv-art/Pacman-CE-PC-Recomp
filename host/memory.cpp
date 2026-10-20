@@ -5,6 +5,7 @@
 
 #include <cstdlib>
 #include <mutex>
+#include <vector>
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -49,4 +50,29 @@ uint32_t GuestAlloc(uint32_t size, uint32_t align)
 
     g_allocNext = address + size;
     return address;
+}
+
+static std::mutex g_guardMutex;
+static std::vector<uint32_t> g_stackGuards; // low address of each guard region
+
+uint32_t GuestAllocStack(uint32_t size)
+{
+    const uint32_t guard = GuestAlloc(GuestStackGuardSize + size, 0x10000);
+    DWORD oldProtect;
+    VirtualProtect(g_base + guard, GuestStackGuardSize, PAGE_NOACCESS, &oldProtect);
+
+    std::lock_guard lock(g_guardMutex);
+    g_stackGuards.push_back(guard);
+    return guard + GuestStackGuardSize;
+}
+
+bool IsGuestStackGuard(uint32_t address)
+{
+    std::lock_guard lock(g_guardMutex);
+    for (uint32_t guard : g_stackGuards)
+    {
+        if (address >= guard && address < guard + GuestStackGuardSize)
+            return true;
+    }
+    return false;
 }

@@ -7,6 +7,7 @@
 #include <ppc_context.h>
 
 #include <cinttypes>
+#include <cstdio>
 #include <cstdlib>
 #include <new>
 
@@ -64,6 +65,29 @@ static void LogHostLocation(const char* label, uint64_t address)
         LogPrint("  %s: host 0x%" PRIX64 " (no symbol)", label, address);
 }
 
+// Unwinds from the faulting context so the report shows the chain of recompiled functions.
+static void LogBacktrace(const CONTEXT& faultContext)
+{
+    constexpr int MaxFrames = 24;
+    CONTEXT context = faultContext;
+    LogPrint("  backtrace:");
+    for (int frame = 0; frame < MaxFrames && context.Rip != 0; frame++)
+    {
+        char label[16];
+        std::snprintf(label, sizeof(label), "#%d", frame);
+        LogHostLocation(label, context.Rip);
+
+        DWORD64 imageBase = 0;
+        RUNTIME_FUNCTION* function = RtlLookupFunctionEntry(context.Rip, &imageBase, nullptr);
+        if (function == nullptr)
+            break; // leaf or unknown code: stop rather than guess
+
+        void* handlerData = nullptr;
+        DWORD64 establisherFrame = 0;
+        RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, context.Rip, function, &context, &handlerData, &establisherFrame, nullptr);
+    }
+}
+
 static LONG CALLBACK CrashHandler(EXCEPTION_POINTERS* info)
 {
     const DWORD code = info->ExceptionRecord->ExceptionCode;
@@ -78,7 +102,8 @@ static LONG CALLBACK CrashHandler(EXCEPTION_POINTERS* info)
         const auto* fault = reinterpret_cast<const uint8_t*>(info->ExceptionRecord->ExceptionInformation[1]);
         const char* kind = info->ExceptionRecord->ExceptionInformation[0] == 1 ? "write" : "read";
         if (IsGuestHostPointer(fault))
-            LogPrint("  %s of guest address 0x%08X", kind, uint32_t(fault - g_base));
+            LogPrint("  %s of guest address 0x%08X%s", kind, uint32_t(fault - g_base),
+                IsGuestStackGuard(uint32_t(fault - g_base)) ? " - guest stack overflow (guard region)" : "");
         else
             LogPrint("  %s of host address %p", kind, static_cast<const void*>(fault));
     }
@@ -89,6 +114,7 @@ static LONG CALLBACK CrashHandler(EXCEPTION_POINTERS* info)
 
     const char* lastStub = StubLastCalled();
     LogPrint("  last import stub called: %s", lastStub != nullptr ? lastStub : "(none)");
+    LogBacktrace(*info->ContextRecord);
     StubPrintSummary();
     LogFlush();
     TerminateProcess(GetCurrentProcess(), 6);
@@ -97,8 +123,12 @@ static LONG CALLBACK CrashHandler(EXCEPTION_POINTERS* info)
 
 static DWORD WINAPI GuestMainThread(void*)
 {
+    // Keep stack for the crash handler when the guest overflows the host stack.
+    ULONG guarantee = 256 * 1024;
+    SetThreadStackGuarantee(&guarantee);
+
     const uint32_t stackSize = g_xex.stackSize != 0 ? g_xex.stackSize : DefaultGuestStackSize;
-    const uint32_t stackLow = GuestAlloc(stackSize, 0x10000);
+    const uint32_t stackLow = GuestAllocStack(stackSize);
     const uint32_t stackHigh = stackLow + stackSize;
 
     // Only the PCR fields above are filled in; the thread object and TLS slots are zeroed placeholders.

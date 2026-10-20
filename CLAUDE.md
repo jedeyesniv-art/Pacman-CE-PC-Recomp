@@ -51,6 +51,8 @@ guest address, 6 host exception (crash report names the sub_XXXXXXXX it happened
 guest regs and the last stub called).
 Guest memory: one 4 GB block (g_base + guest addr), page 0 no-access. Host-owned guest structures (stacks, PCR,
 data-import blocks) come from GuestAlloc in 0x7C000000-0x7FFFFFFF - the game's allocators must avoid it.
+Guest stacks (GuestAllocStack) have a 64 KB no-access guard below them; the crash report flags hits.
+Crash reports include a host backtrace (sub_XXXXXXXX names) - recursion shows up as a repeating pair.
 Main thread: r1 = stack top - 0x100, r13 = PCR (Xenia X_KPCR layout: tls 0x0, self 0x30, stack 0x70/0x74,
 current thread 0x100; thread object and TLS slots are zeroed placeholders).
 Loader: XenonUtils leaves type-0 import records byte-swapped; host resolves each to its function thunk
@@ -84,9 +86,13 @@ Remember vector registers are stored fully reversed (see XenonRecomp README) - p
    for overflow/NaN. If Xenos treats exponent 31 as a normal number, unpacking such values is wrong.
 2. blrl site sub_821B7F30 looks like MSVC's _CallSettingFrame (C++ EH funclet call; 0x8215C880 probably
    _NLG_Notify) - unverified. If so it only runs during exception unwinding.
-3. Host runtime started (2026-10-20). First run with all-stub imports: loads, starts the CRT, crashes after the
-   2nd NtAllocateVirtualMemory call (stub doesn't write BaseAddress back) in sub_820632E8 - CRT heap setup.
-   Next: implement imports one blocker at a time, starting with NtAllocateVirtualMemory/Free/Query.
+3. Host runtime started (2026-10-20). Implemented: memory imports (host\kernel\memory_imports.cpp on
+   GuestHeap: virtual 4K 0x00010000-0x3FFFFFFF, virtual 64K 0x40000000-0x7BFFFFFF, physical windows
+   0xA0000000/0xC0000000/0xE0000000 - not aliased to each other). The CRT heap now initialises.
+   Current blocker: KeTlsSetValue stub returns 0 (= failure), so CRT _mtinit (sub_820B8F58) fails before
+   _mtinitlocks (sub_820BC528); the error path then recurses _lock (sub_820BC780) <-> _mtinitlocknum
+   (sub_820BC640) on lock 10 until the guest stack guard trips.
+   Next: KeTlsAlloc/Free/GetValue/SetValue, then real critical sections (Rtl*CriticalSection are stubs).
    Heavy ones later: Vd (GPU, 20) and XAudio/XMA (7). UnleashedRecomp's kernel layer is a reference (check
    its licence before copying). Known gaps: static TLS (XEX has a TLS header), data imports are zero-filled
    (KeTimeStampBundle etc. need real contents), PCR/thread object mostly zero.

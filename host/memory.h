@@ -19,6 +19,14 @@ bool GuestMemoryInit();
 // Zero-filled bump allocation from the host region; returns a guest address. Stops the host when full.
 uint32_t GuestAlloc(uint32_t size, uint32_t align = 16);
 
+// Allocates a guest stack with a no-access guard region below it, so an overflow faults right away.
+// Returns the low end of the usable stack.
+constexpr uint32_t GuestStackGuardSize = 0x10000;
+uint32_t GuestAllocStack(uint32_t size);
+
+// True if a guest address lies in a stack guard region.
+bool IsGuestStackGuard(uint32_t address);
+
 inline bool IsGuestHostPointer(const void* p)
 {
     return p >= g_base && p < g_base + GuestMemorySize;
