@@ -29,14 +29,18 @@ tools\xenonRecomp\build\XenonRecomp\XenonRecomp.exe config\pacman.toml tools\xen
   restfpr_14 0x820B966C, savevmx_14 0x8215B050, restvmx_14 0x8215B2E8, savevmx_64 0x8215B0E4, restvmx_64 0x8215B37C
 - setjmp/longjmp: not located yet (omitted from config).
 
-## Status / open issues (first recompile run, 2026-10-19)
-1. Unsupported instructions in XenonRecomp (become debug traps):
-   lhbrx, vandc, vsel128, vminsw, vaddsws, vavgsw, vpkshss, vctuxs, stvebx, mulhdu.
-   Clusters: vaddsws/vminsw/vpkshss ~0x820D0CA4-0x820D174C and vavgsw ~0x820D7B78 (looks like audio mixing);
-   lhbrx ~0x820AD5C4, ~0x820CF8D8 (looks like little-endian file parsing). Check upstream PRs/forks first.
+## Status / open issues (second recompile run, 2026-10-20)
+Recompile completes cleanly (100%); the log contains only unrecognized-instruction warnings (110 sites).
+1. Unsupported instructions in XenonRecomp (become debug traps), site counts from the 2026-10-20 run:
+   vaddsws 46, lhbrx 18, vpkshss 14, vminsw 14, vavgsw 8, vandc 5, vsel128 2, vctuxs 1, stvebx 1, mulhdu 1.
+   Clusters: vaddsws/vminsw/vpkshss ~0x820D0CA4-0x820D174C and vavgsw+vaddsws ~0x820D7B78-0x820D7FCC
+   (looks like audio mixing); lhbrx ~0x820AD5C4-0x820AD650, ~0x820CF8D8-0x820CFBE0 (looks like
+   little-endian file parsing); vandc/vsel128 ~0x82076528-0x8207F588 (possibly a bitwise select pattern, unchecked);
+   vctuxs+vsel128 0x820CE268; stvebx 0x820D33C4; mulhdu 0x821A3BA4. Check upstream PRs/forks first.
    Remember vector registers are stored fully reversed (see XenonRecomp README) - pack/select ops need care.
-2. Function boundaries: all 5 switch-containing functions now defined in pacman.toml (unverified until re-run).
-3. Missed jump table at 820ACD1C (bctr): added manually to switch_tables.toml with base 0x820ACCF8
-   (the lis r12 after the bounds check, mirroring XenonAnalyse's convention), r30, 9 cases.
-   If the re-run still says "no switch table entry present", the base convention is wrong - try the bctr address.
-4. Next: re-run recompile; expect only unsupported-instruction warnings to remain.
+2. Next: implement the instructions above in XenonRecomp (vaddsws/lhbrx/vminsw/vpkshss cover 92 of 110 sites).
+
+Resolved (verified 2026-10-20):
+- Function boundaries: all 5 switch-containing functions defined in pacman.toml; no boundary errors.
+- Missed jump table at 820ACD1C (bctr): manual switch_tables.toml entry works - base 0x820ACCF8
+  (the lis r12 after the bounds check, XenonAnalyse's convention), r30, 9 cases.
