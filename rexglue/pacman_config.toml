@@ -16,6 +16,32 @@ longjmp_address = 0x8215BC90
 # Leaf function reached only by a this-adjusting thunk (b from 8208972C); ReXGlue's analysis missed it.
 0x8208A000 = { size = 0x28 }
 
+# Spin-wait backoff (src/spin_hooks.cpp). On the Xbox these loops each had a hardware thread to
+# themselves; on a PC they each pin a core. The hooks only add a pause / short sleep while idle.
+
+# Job workers 1-3 (sub_8213ED08 / sub_8213EDE0 / sub_8213EEB8) poll their control word for state 1
+# (job handed out) with no delay. Hooked at the "bne" taken when there is no job; r11 = state.
+[[midasm_hook]]
+address = 0x8213ED54
+name = "WorkerPollHook"
+registers = ["r11"]
+
+[[midasm_hook]]
+address = 0x8213EE2C
+name = "WorkerPollHook"
+registers = ["r11"]
+
+[[midasm_hook]]
+address = 0x8213EF04
+name = "WorkerPollHook"
+registers = ["r11"]
+
+# D3D's GPU wait poll (sub_82065018, called in a loop by sub_8206F728): a few delay hints, then a check of
+# the GPU's progress. Hooked after the delay loop, once per poll.
+[[midasm_hook]]
+address = 0x8206506C
+name = "GpuWaitPollHook"
+
 # Padding words to skip rather than treat as code.
 [[invalid_instructions]]
 data = 0x00000000

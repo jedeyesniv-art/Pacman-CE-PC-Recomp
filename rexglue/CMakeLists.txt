@@ -13,6 +13,7 @@ include(generated/rexglue.cmake)
 # Sources
 set(PACMAN_SOURCES
     src/main.cpp
+    src/spin_hooks.cpp
 )
 
 if(WIN32)

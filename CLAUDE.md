@@ -24,8 +24,17 @@ Run (from rexglue\out\build\win-amd64-relwithdebinfo):
   pacman.exe --game_data_root=C:/PacManRecomp/private --gpu_plugin=xenos [--log_file=... --log_level=debug]
   Without --gpu_plugin=xenos there is no GPU emulation. CMakeLists passes GPU_PLUGINS xenos so the DLL is staged.
 Status 2026-10-20: builds and runs, confirmed by the owner: full video and audio, plays perfectly at 120 fps
-(D3D12, RTX 5070 Ti) with ~9% GPU and ~30% CPU; fans still spin up noticeably. Next: efficiency pass
-(CPU use, frame rate vs the game's native 60 Hz, spin-waits) - measure with --perf_log_csv.
+(D3D12, RTX 5070 Ti) with ~9% GPU and ~30% CPU (~35% in gameplay); fans still spin up noticeably.
+Defaults: src\pacman_app.h finds private\ by searching up from the exe and loads the xenos GPU plugin, so
+pacman.exe runs with no arguments.
+Efficiency pass: the CPU cost was four guest threads each spinning at 100% of a core - job workers 1-3
+(sub_8213ED08/EDE0/EEB8 poll a control word at 0x821EDD30/+8/+16 for state 1, no delay) and the main
+thread in D3D's GPU wait (sub_82065018). Mid-asm hooks (pacman_config.toml -> src\spin_hooks.cpp) spin
+briefly with _mm_pause, then sleep 250 us steps on a high-resolution waitable timer. Menu: 416% of a core
+-> 32% (26% -> 2% of all cores). The 120 fps is host presentation at the display rate; the guest vblank
+is 60 Hz (video_mode_refresh_rate default) and game speed is correct.
+Profiling: per-thread CPU via a PowerShell GetThreadTimes script; an external stack sampler (suspends guest
+threads; it slows the game down while it runs) with names from pacman.pdb. --perf_log_csv wrote nothing.
 The game probes game:\media\en-us\ first and falls back to media\ - those NtCreateFile failures are expected.
 
 The sections below describe the XenonRecomp-based work (master), kept for reference.
