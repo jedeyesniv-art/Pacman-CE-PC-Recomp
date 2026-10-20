@@ -58,6 +58,16 @@ copies the game files into game\ (everything except default.exe). Re-running kee
 Everything else the binaries import is part of Windows 10/11.
 
 ## Known issues
+- Game-logic slowdown in places (owner, 2026-10-20 portable build): presented frame rate stays constant,
+  music keeps real-time pace, game falls ~18 s behind over a 5 min run (~6%). No visible CPU/GPU change.
+  The game steps once per guest frame, so any frame that misses its 60 Hz slot slows the game.
+  Suspects, to A/B test in the slow spot:
+  1. spin hooks (src\spin_hooks.cpp): wake-up latency (up to ~250 us per sleep) adding up in heavy scenes.
+     Add an on/off cvar and try shorter sleeps / longer spin.
+  2. shader compilation: the portable build started with an empty userdata\cache (the cache used to be in
+     Documents\pacman). Check whether a second run of the same stage is smooth, and whether
+     "Creating graphics pipeline" log lines coincide with the slowdown.
+  3. guest frames taking too long: measure guest FPS/frame time (the SDK has a "Guest: %.1f FPS" display).
 - Intermittent heap-corruption crash (0xC0000374) on exit, inside the SDK: ReXApp::OnDestroy -> ~Runtime ->
   Runtime::Shutdown -> InputSystem::Shutdown -> input device destructors. Seen in two of the owner's sessions
   (dumps in %LOCALAPPDATA%\CrashDumps); clean CloseMainWindow() exits worked. Gameplay unaffected.
