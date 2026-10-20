@@ -104,6 +104,17 @@ registers = ["r3"]
 address = 0x82067C64
 name = "FrameHook"
 
+# Playfield position (src/playfield.cpp): just after the startup camera's projection matrix is built
+# (sub_820607E0, bl sub_8207FCD8 -> 0x821E5950).
+[[midasm_hook]]
+address = 0x820608EC
+name = "ProjectionHook"
+
+# ... and just after sub_8213B1C0 stores the sprite matrix (0x821EDC30, vertex constants c0-c3).
+[[midasm_hook]]
+address = 0x8213B2AC
+name = "SpriteMatrixHook"
+
 # Padding words to skip rather than treat as code.
 [[invalid_instructions]]
 data = 0x00000000

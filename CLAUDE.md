@@ -15,6 +15,7 @@ Status: plays flawlessly (owner-confirmed): full video/audio, full version, ~7% 
     extra_functions.toml    74 function starts ReXGlue's analysis misses (vtable-only methods, no .pdata)
     src\pacman_app.h        ReXApp subclass: run defaults (see below)
     src\spin_hooks.cpp      spin-wait backoff hook functions
+    src\playfield.cpp       moves the picture up (playfield position, see below)
     generated\rexglue.cmake SDK integration (tracked); generated\default\ = codegen output (game code, ignored)
     out\                    build output (ignored)
 - tools\rexglue-sdk\win-amd64\  prebuilt SDK nightly 0.10.0.24 (downloaded, ignored). bin\rexglue.exe = CLI.
@@ -32,10 +33,14 @@ Scripted builds run inside vcvars64 (not Developer PowerShell - it defaults to x
 
 ## Build and run
 From rexglue\ (configure once):
-  cmake --preset win-amd64-relwithdebinfo -DCMAKE_PREFIX_PATH=C:/PacManRecomp/tools/rexglue-sdk/win-amd64
-  cmake --build --preset win-amd64-relwithdebinfo        (codegen runs as part of the build; ~15 s)
+  cmake --preset win-amd64-release -DCMAKE_PREFIX_PATH=C:/PacManRecomp/tools/rexglue-sdk/win-amd64
+  cmake --build --preset win-amd64-release        (codegen runs as part of the build; ~15 s)
 Codegen alone (fast check of config changes): ..\tools\rexglue-sdk\win-amd64\bin\rexglue.exe codegen pacman_manifest.toml
-Run: rexglue\out\build\win-amd64-relwithdebinfo\pacman.exe (no arguments needed)
+Run: rexglue\out\build\win-amd64-release\pacman.exe (no arguments needed)
+Use Release for playing and timing. The win-amd64-relwithdebinfo preset (links the SDK's *rd.dll builds) is for
+debugging only: its loading screen takes ~40 s instead of a few, with one guest thread (F8000064) at 100% of a
+core (measured 2026-10-20; the same source loads fast in Release). A failed configure (e.g. outside vcvars64:
+"CMAKE_RC_COMPILER not set") leaves the build dir broken - re-run the configure command inside vcvars64.
   Useful options: --log_file=<path> --log_level=debug|trace, --license_mask=<n>, --game_data_root=<dir>
 Defaults set in src\pacman_app.h (command-line values still win, except that an explicit empty/0 value
 can't be told apart from "not set"):
@@ -57,6 +62,22 @@ can't be told apart from "not set"):
 - fullscreen = true (unless set elsewhere). F11 / Alt+Enter toggle it (PacmanApp::OnKeyDown; the SDK has no
   key for it). SDL's KeyEvent always has repeat_count 1 (auto-repeat is prev_state), and a mode switch makes
   SDL re-send the held key, so toggles within 500 ms are ignored. Other keys go to rex::ui::ProcessKeyEvent.
+
+Playfield position (src\playfield.cpp, pacman_playfield_offset, default 40 = px at 720p, 0 = original):
+the game centres its maze and pulsing neon frames 40 px below the screen middle, so the outer frame's bottom
+is cut off (same in Xenia; display path checked: scaler source 0,0-1280x720, front buffer 1280x720). The
+shift is applied in clip space, so the hidden strip gets drawn rather than clipped (a viewport shift would
+leave an empty band). Two matrices, each hooked right after the game writes it:
+- sprite matrix 0x821EDC30 (sub_8213B1C0, once per frame; uploaded to vertex constants c0-c3 by
+  sub_820720B0 from the sprite draws sub_8213AB98 / sub_8213AD30): maze, characters, HUD, menus. c1 += ty*c3.
+  The inverse at 0x821EDC70 is built from a stack copy, so it stays unshifted.
+- startup perspective projection 0x821E5950 (sub_820607E0 -> sub_8207FCD8; FOV 45, 16:9, near 1, far 200;
+  view at 0x821E5990, eye (0,0,-7)): drives the ghost-house clipping. Shifting only this one moves nothing
+  but that clipping.
+At an exaggerated 150 px one purple/yellow glow near the bottom stayed put (a third route); at 40 nothing
+visible is off (owner play-tested 2026-10-20: gameplay, ghost house fine).
+Shader dumps: --dump_shaders=<dir> (Xenia cvar) writes ucode disassembly; the sprite shaders are
+2AED2C0D75EE82C9 / 892169D43B1134FB (c0-c3), the line shaders 6BAB79FEBEF71864 / BD88B0252E3E7DBB (c4-c7).
 
 Exe icon: rexglue\pacman.ico, an ORIGINAL neon-maze design (no game artwork, safe to commit and ship),
 linked via src\pacman.rc; SDL uses it for the window too. Regenerate with python Tools\make_icon.py (Pillow):

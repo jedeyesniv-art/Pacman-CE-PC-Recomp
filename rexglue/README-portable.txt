@@ -24,10 +24,13 @@ Display
   that isn't 16:9, the picture is never stretched; black bars fill the sides or the top and bottom.
   Lower the scale if your GPU struggles, e.g. --resolution_scale=1 for the original 720p.
   The game starts fullscreen. F11 or Alt+Enter switches between fullscreen and a window.
+  The picture is moved up 40 pixels (at 720p) from the original, which sits too low and cuts off the bottom
+  of the pulsing frame around the maze. --pacman_playfield_offset=0 restores the original position.
 
 Options (on the command line, e.g. pacman.exe --fullscreen=false)
   --fullscreen=false                         start in a window
   --resolution_scale=<1-7>                   render scale (default: chosen from the desktop resolution)
+  --pacman_playfield_offset=<pixels>         move the picture up (default 40; 0 = original position)
   --log_file=pacman.log --log_level=debug   write a log
   --license_mask=<n>                         licence bits (the default, 1, is the full game)
   --game_data_root=<dir>                     use game files from another folder
