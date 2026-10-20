@@ -1,0 +1,2 @@
+// Exe icon (also used by SDL for the window). Regenerate pacman.ico with Tools/make_icon.py.
+1 ICON "../pacman.ico"

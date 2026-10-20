@@ -58,12 +58,11 @@ can't be told apart from "not set"):
   key for it). SDL's KeyEvent always has repeat_count 1 (auto-repeat is prev_state), and a mode switch makes
   SDL re-send the held key, so toggles within 500 ms are ignored. Other keys go to rex::ui::ProcessKeyEvent.
 
-Exe icon: CMakeLists.txt turns private\game_icon.png (64x64, from the game package; PACMAN_ICON_PNG to
-override) into pacman.ico + pacman_icon.rc in the build folder with Tools\png_to_ico.py at configure time.
-Game artwork, so never committed; without the PNG the exe just has no icon. SDL uses it for the window too.
-Release plan (owner, 2026-10-20): eventually publish a ready-made zip (exe + DLLs, empty game\). For that build,
-leave the icon out of the exe (-DPACMAN_ICON_PNG=) and, if wanted, load game\game_icon.png as the window
-icon at runtime (not implemented yet).
+Exe icon: rexglue\pacman.ico, an ORIGINAL neon-maze design (no game artwork, safe to commit and ship),
+linked via src\pacman.rc; SDL uses it for the window too. Regenerate with python Tools\make_icon.py (Pillow):
+256 = PNG entry with the title, 64 with title, 48/32/16 = 32-bit bitmaps without it. (Namco's
+game_icon.png is deliberately not used.)
+Release plan (owner, 2026-10-20): eventually publish a ready-made zip (exe + DLLs, empty game\).
 
 ## Portable build
   powershell -ExecutionPolicy Bypass -File tools\package_portable.ps1 [-GameData C:\PacManRecomp\private] [-SkipBuild]
