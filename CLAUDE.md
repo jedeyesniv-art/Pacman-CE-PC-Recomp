@@ -14,6 +14,7 @@ Game data comes from the owner's own console dump and is never committed or shar
                            Restore into a fresh clone: git -C tools\xenonRecomp am patches\xenonRecomp\*.patch
                            After new commits on pacman-instructions, delete the old *.patch files and regenerate:
                            git -C tools\xenonRecomp format-patch ddd128b..pacman-instructions -o C:\PacManRecomp\patches\xenonRecomp
+- docs\imports.md          the 164 Xbox imports the generated code needs from a host runtime, by subsystem
 - tools\ppcinspect.py      disassembler helper (capstone): modes fn / dis / words / bytes
 - tools\find_save_restore.py
 
@@ -28,6 +29,13 @@ Ninja + clang-cl Release: cmake --build tools\xenonRecomp\build --target XenonRe
 
 ## Recompile command (from C:\PacManRecomp)
 tools\xenonRecomp\build\XenonRecomp\XenonRecomp.exe config\pacman.toml tools\xenonRecomp\XenonUtils\ppc_context.h > recomp_log.txt 2>&1
+
+## Building the generated code (no host project yet)
+Compile each ppc\*.cpp from inside ppc\ (16 in parallel takes ~6 s total):
+  clang-cl /std:c++20 /O2 /EHsc -march=sandybridge -fno-strict-aliasing -I. -I<xenonRecomp>\thirdparty\simde -c <file>
+From Git Bash, prefix MSYS_NO_PATHCONV=1 or the /O2-style flags get mangled into paths. llvm-lib archives the
+objects. A trial link (stub main walking PPCFuncMappings, inside the vcvars64 env) fails only on the imports
+listed in docs\imports.md. Note: in a one-line cmd /c chain %ERRORLEVEL% is expanded at parse time - don't trust it.
 
 ## Known facts
 - Code range ~0x82070000-0x821C0000 (~1.5 MB). Same compiler runtime as Sonic Unleashed:
@@ -53,10 +61,13 @@ Remember vector registers are stored fully reversed (see XenonRecomp README) - p
    for overflow/NaN. If Xenos treats exponent 31 as a normal number, unpacking such values is wrong.
 2. blrl site sub_821B7F30 looks like MSVC's _CallSettingFrame (C++ EH funclet call; 0x8215C880 probably
    _NLG_Notify) - unverified. If so it only runs during exception unwinding.
-3. Not yet done: building/linking the full generated ppc\ code (only ppc_recomp.2/8/15/24.cpp were test-compiled
-   with clang-cl -c); nothing has run in-game; new instructions untested at runtime.
+3. Next: a host runtime. All generated code compiles (27 TUs, 0 errors/warnings, 6245 functions, 9.8 MB lib);
+   linking needs the 164 imports in docs\imports.md. Heavy ones: Vd (GPU, 20) and XAudio/XMA (7); many others
+   can start as stubs. UnleashedRecomp's kernel layer implements most of them - use it as reference.
+   Nothing has run yet; new instructions untested at runtime.
 
 Resolved (verified 2026-10-20):
+- Full generated-code build: all 27 TUs compile cleanly; trial link leaves only the 164 guest imports.
 - Silent debugtraps (8 sites: vcmpbfp 2, vupkd3d128 float16 4, vpkd3d128 float16_2 1, blrl 1) - fdc35ee.
 - Unsupported instructions (110 sites: vaddsws 46, lhbrx 18, vpkshss 14, vminsw 14, vavgsw 8, vandc 5,
   vsel128 2, vctuxs 1, stvebx 1, mulhdu 1) - implemented on the pacman-instructions branch, see above.
