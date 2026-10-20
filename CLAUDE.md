@@ -88,11 +88,20 @@ Remember vector registers are stored fully reversed (see XenonRecomp README) - p
    _NLG_Notify) - unverified. If so it only runs during exception unwinding.
 3. Host runtime started (2026-10-20). Implemented: memory imports (host\kernel\memory_imports.cpp on
    GuestHeap: virtual 4K 0x00010000-0x3FFFFFFF, virtual 64K 0x40000000-0x7BFFFFFF, physical windows
-   0xA0000000/0xC0000000/0xE0000000 - not aliased to each other). The CRT heap now initialises.
-   Current blocker: KeTlsSetValue stub returns 0 (= failure), so CRT _mtinit (sub_820B8F58) fails before
-   _mtinitlocks (sub_820BC528); the error path then recurses _lock (sub_820BC780) <-> _mtinitlocknum
-   (sub_820BC640) on lock 10 until the guest stack guard trips.
-   Next: KeTlsAlloc/Free/GetValue/SetValue, then real critical sections (Rtl*CriticalSection are stubs).
+   0xA0000000/0xC0000000/0xE0000000 - not aliased to each other); dynamic TLS (host\kernel\tls_imports.cpp,
+   64 slots from the XEX TLS header, values per host thread; the header has no static TLS data and no guest
+   code reads r13+0). The CRT now initialises fully and the game reaches D3D/GPU init (Vd* stubs).
+   Current blocker (GPU): D3D waits in sub_82065018 (called from sub_8206F728) for the ring-buffer read
+   pointer (write-back address from VdEnableRingBufferRPtrWriteBack, device+10768) to reach the write
+   pointer, which the game sets via GPU register CP_RB_WPTR (0x7FC80714). Its 5000-tick timeout reads
+   current thread object (PCR+0x100) +88, which is zero, so it never fires. ExCreateThread (stub) was the last
+   import before the hang but is not the cause.
+   Options: a minimal "null GPU" that consumes the ring buffer instantly (catch CP_RB_WPTR writes, update the
+   read-pointer write-back), plus the graphics interrupt callback (VdSetGraphicsInterruptCallback) for vblank.
+   Also still stubs: Rtl*CriticalSection (no locking - fine single-threaded), ExCreateThread.
+   Guest r13 fields the game reads: 0x100 (thread), 0x10C (cpu), 0x150 (dpc active) - matches Xenia's X_KPCR.
+   Device registers live at 0x7F000000+ (GPU at 0x7FC80000); the host region stops at 0x7F000000.
+   Hang reporter: if nothing is logged for 10 s, the host logs the guest main thread's backtrace and regs.
    Heavy ones later: Vd (GPU, 20) and XAudio/XMA (7). UnleashedRecomp's kernel layer is a reference (check
    its licence before copying). Known gaps: static TLS (XEX has a TLS header), data imports are zero-filled
    (KeTimeStampBundle etc. need real contents), PCR/thread object mostly zero.

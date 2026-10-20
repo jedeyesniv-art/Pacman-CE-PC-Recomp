@@ -18,6 +18,15 @@
 extern std::unordered_map<size_t, const char*> XamExports;
 extern std::unordered_map<size_t, const char*> XboxKernelExports;
 
+// XEX_HEADER_TLS_INFO contents.
+struct XexTlsInfo
+{
+    be<uint32_t> slotCount;
+    be<uint32_t> rawDataAddress;
+    be<uint32_t> dataSize;
+    be<uint32_t> rawDataSize;
+};
+
 // Size of the zeroed block each data import gets until it has a real implementation.
 constexpr uint32_t DataImportBlockSize = 0x1000;
 
@@ -154,8 +163,15 @@ bool LoadXex(const char* path, XexInfo& info)
     LogPrint("loaded %s: image 0x%08X+0x%X, entry 0x%08X, stack size 0x%X%s", path, info.imageBase, info.imageSize,
         info.entryPoint, info.stackSize, info.stackSize == 0 ? " (not in header)" : "");
 
-    if (getOptHeaderPtr(xex.data(), XEX_HEADER_TLS_INFO) != nullptr)
-        LogPrint("warning: XEX has a TLS info header; static TLS is not set up yet");
+    info.tlsSlots = 0;
+    if (auto* tls = static_cast<const XexTlsInfo*>(getOptHeaderPtr(xex.data(), XEX_HEADER_TLS_INFO)))
+    {
+        info.tlsSlots = tls->slotCount;
+        LogPrint("TLS header: %u slots, static data 0x%X bytes (0x%X initialised) at 0x%08X", uint32_t(tls->slotCount),
+            uint32_t(tls->dataSize), uint32_t(tls->rawDataSize), uint32_t(tls->rawDataAddress));
+        if (tls->dataSize != 0)
+            LogPrint("warning: the XEX has static TLS data, which the host does not set up yet");
+    }
 
     ResolveVariableImports(xex.data(), image);
     return true;

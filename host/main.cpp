@@ -2,6 +2,7 @@
 #include "log.h"
 #include "memory.h"
 #include "stubs.h"
+#include "kernel/tls_imports.h"
 
 #include <ppc_config.h>
 #include <ppc_context.h>
@@ -27,7 +28,11 @@ constexpr uint32_t PcrStackBase = 0x070; // high end of the stack
 constexpr uint32_t PcrStackEnd = 0x074;  // low end of the stack
 constexpr uint32_t PcrCurrentThread = 0x100;
 
+// If nothing is logged for this long, the hang reporter prints where the guest main thread is.
+constexpr DWORD QuietReportMilliseconds = 10000;
+
 static thread_local PPCContext* g_currentContext;
+static PPCContext* g_mainContext; // the guest main thread's context, for the hang reporter
 static XexInfo g_xex;
 
 // Every table slot without a recompiled function points here, so a bad indirect call is reported.
@@ -146,6 +151,7 @@ static DWORD WINAPI GuestMainThread(void*)
     ctx->r13.u64 = pcr;
     ctx->fpscr.loadFromHost();
     g_currentContext = ctx;
+    g_mainContext = ctx;
 
     LogPrint("guest main thread: stack 0x%08X-0x%08X, pcr 0x%08X; calling entry point 0x%08X",
         stackLow, stackHigh, pcr, g_xex.entryPoint);
@@ -156,6 +162,57 @@ static DWORD WINAPI GuestMainThread(void*)
 
     LogPrint("entry point returned (r3=%08X)", ctx->r3.u32);
     return 0;
+}
+
+// Briefly suspends the guest main thread and logs where it is, then lets it continue.
+// Diagnostic only: if the thread were suspended holding a host lock (log, heap) this could deadlock;
+// it only runs after a quiet period, when the guest is not logging.
+static void ReportQuietThread(HANDLE thread)
+{
+    if (SuspendThread(thread) == DWORD(-1))
+        return;
+
+    CONTEXT context{};
+    context.ContextFlags = CONTEXT_FULL;
+    if (GetThreadContext(thread, &context))
+    {
+        LogPrint("no log output for %lu s - guest main thread is at:", QuietReportMilliseconds / 1000);
+        if (PPCContext* ctx = g_mainContext)
+            LogPrint("  guest r1=%08X r3=%08X r4=%08X r5=%08X lr=%08X ctr=%08X",
+                ctx->r1.u32, ctx->r3.u32, ctx->r4.u32, ctx->r5.u32, uint32_t(ctx->lr), ctx->ctr.u32);
+        const char* lastStub = StubLastCalled();
+        LogPrint("  last import stub called: %s", lastStub != nullptr ? lastStub : "(none)");
+        LogBacktrace(context);
+        LogFlush();
+    }
+    ResumeThread(thread);
+}
+
+// Waits for the guest main thread, reporting once per quiet period where it is stuck.
+static void WaitForGuest(HANDLE thread)
+{
+    unsigned long long lastLines = LogLineCount();
+    DWORD quietFor = 0;
+    bool reported = false;
+    while (WaitForSingleObject(thread, 1000) == WAIT_TIMEOUT)
+    {
+        const unsigned long long lines = LogLineCount();
+        if (lines != lastLines)
+        {
+            lastLines = lines;
+            quietFor = 0;
+            reported = false;
+            continue;
+        }
+
+        quietFor += 1000;
+        if (quietFor >= QuietReportMilliseconds && !reported)
+        {
+            ReportQuietThread(thread);
+            lastLines = LogLineCount();
+            reported = true;
+        }
+    }
 }
 
 int main(int argc, char** argv)
@@ -170,6 +227,7 @@ int main(int argc, char** argv)
     if (!GuestMemoryInit() || !LoadXex(xexPath, g_xex))
         return 1;
     InitFunctionTable();
+    TlsInit(g_xex.tlsSlots != 0 ? g_xex.tlsSlots : MaxTlsSlots);
 
     HANDLE thread = CreateThread(nullptr, GuestThreadHostStackSize, GuestMainThread, nullptr, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
     if (thread == nullptr)
@@ -177,7 +235,7 @@ int main(int argc, char** argv)
         LogPrint("error: could not create the guest main thread (error %lu)", GetLastError());
         return 1;
     }
-    WaitForSingleObject(thread, INFINITE);
+    WaitForGuest(thread);
 
     StubPrintSummary();
     LogFlush();

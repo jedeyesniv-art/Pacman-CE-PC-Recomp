@@ -25,6 +25,7 @@ add_executable(PacManHost
     host/import_stubs.cpp
     host/kernel/guest_heap.cpp
     host/kernel/memory_imports.cpp
+    host/kernel/tls_imports.cpp
     ${PPC_SOURCES}
 )
 

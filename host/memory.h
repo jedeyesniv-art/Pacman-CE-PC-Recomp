@@ -11,8 +11,10 @@ constexpr uint64_t GuestMemorySize = 0x100000000ull;
 
 // Guest memory the host hands out for its own structures (stacks, PCR, data imports).
 // The game's allocators (NtAllocateVirtualMemory, MmAllocatePhysicalMemoryEx) must stay out of it.
+// It ends below 0x7F000000: that range is device registers (the GPU's are at 0x7FC80000).
 constexpr uint32_t HostRegionBegin = 0x7C000000;
-constexpr uint32_t HostRegionEnd = 0x80000000;
+constexpr uint32_t HostRegionEnd = 0x7F000000;
+constexpr uint32_t GpuRegisterBase = 0x7FC80000;
 
 bool GuestMemoryInit();
 
