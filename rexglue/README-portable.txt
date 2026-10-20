@@ -23,9 +23,10 @@ Display
   to fill the screen (3x on a 4K screen, 2x on 1440p, 16:10 and ultrawide screens). On a screen or window
   that isn't 16:9, the picture is never stretched; black bars fill the sides or the top and bottom.
   Lower the scale if your GPU struggles, e.g. --resolution_scale=1 for the original 720p.
+  The game starts fullscreen. F11 or Alt+Enter switches between fullscreen and a window.
 
-Options (on the command line, e.g. pacman.exe --fullscreen)
-  --fullscreen                               start in fullscreen
+Options (on the command line, e.g. pacman.exe --fullscreen=false)
+  --fullscreen=false                         start in a window
   --resolution_scale=<1-7>                   render scale (default: chosen from the desktop resolution)
   --log_file=pacman.log --log_level=debug   write a log
   --license_mask=<n>                         licence bits (the default, 1, is the full game)

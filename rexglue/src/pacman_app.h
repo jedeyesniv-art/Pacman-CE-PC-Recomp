@@ -11,9 +11,13 @@
 #include <rex/runtime.h>
 #include <rex/system/gpu_plugin.h>
 #include <rex/system/interfaces/input.h>
+#include <rex/ui/flags.h>
+#include <rex/ui/keybinds.h>
+#include <rex/ui/window.h>
 #include <rex/ui/overlay/achievement_notification.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -107,6 +111,9 @@ class PacmanApp : public rex::ReXApp {
 
     if (!rex::cvar::HasNonDefaultValue("present_letterbox"))
       REXCVAR_SET(present_letterbox, true);
+    // Start fullscreen unless --fullscreen=false (or the config file) says otherwise.
+    if (rex::cvar::GetFlagSource("fullscreen") == rex::cvar::Source::kDefault)
+      REXCVAR_SET(fullscreen, true);
 
     if (REXCVAR_GET(license_mask) == 0)
       REXCVAR_SET(license_mask, 1);
@@ -151,6 +158,28 @@ class PacmanApp : public rex::ReXApp {
                 GuestWidth * scale, GuestHeight * scale);
   }
 
+  // F11 or Alt+Enter switches between fullscreen and windowed (the SDK has no key for it). Other keys go to
+  // the SDK's key bindings (F3/F4/F7 overlays), as ReXApp::OnKeyDown does. Switching mode makes SDL send the
+  // still-held key again (seen: three switches per press), so presses soon after a switch are ignored.
+  void OnKeyDown(rex::ui::KeyEvent& e) override {
+    using rex::ui::VirtualKey;
+    const bool toggle = e.virtual_key() == VirtualKey::kF11 ||
+                        (e.virtual_key() == VirtualKey::kReturn && e.is_alt_pressed());
+    if (toggle && window() != nullptr) {
+      constexpr auto MinInterval = std::chrono::milliseconds(500);
+      const auto now = std::chrono::steady_clock::now();
+      // prev_state = auto-repeat (the SDL backend always reports repeat_count 1)
+      if (!e.prev_state() && now - last_fullscreen_toggle_ >= MinInterval) {
+        last_fullscreen_toggle_ = now;
+        window()->SetFullscreen(!window()->IsFullscreen());
+        REXLOG_INFO("fullscreen {}", window()->IsFullscreen() ? "on" : "off");
+      }
+      e.set_handled(true);
+      return;
+    }
+    rex::ui::ProcessKeyEvent(e);
+  }
+
   // Shut input down while the window still exists. ReXApp::OnDestroy destroys the window before the runtime,
   // and the runtime's shutdown then destroys the mouse/keyboard input driver, whose destructor detaches from the
   // already-freed window: heap corruption (0xC0000374) on every exit that doesn't go through the window's
@@ -159,6 +188,8 @@ class PacmanApp : public rex::ReXApp {
     if (rex::Runtime* rt = runtime(); rt != nullptr && rt->input_system() != nullptr)
       rt->input_system()->Shutdown();
   }
+
+  std::chrono::steady_clock::time_point last_fullscreen_toggle_{};
 
   // void OnLoadXexImage(std::string& xex_image) override {}
   // void OnPostLoadXexImage() override {}

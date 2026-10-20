@@ -54,6 +54,9 @@ can't be told apart from "not set"):
   the plugin itself (ReXApp skips loading when config.graphics is set) and sets them with SetFlagByName;
   REXCVAR_DECLARE on them fails to link.
 - present_letterbox = true: any window/screen shape keeps the 16:9 image unstretched, with black bars.
+- fullscreen = true (unless set elsewhere). F11 / Alt+Enter toggle it (PacmanApp::OnKeyDown; the SDK has no
+  key for it). SDL's KeyEvent always has repeat_count 1 (auto-repeat is prev_state), and a mode switch makes
+  SDL re-send the held key, so toggles within 500 ms are ignored. Other keys go to rex::ui::ProcessKeyEvent.
 
 ## Portable build
   powershell -ExecutionPolicy Bypass -File tools\package_portable.ps1 [-GameData C:\PacManRecomp\private] [-SkipBuild]
