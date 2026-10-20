@@ -1,0 +1,19 @@
+Third-party software in this build
+==================================
+
+ReXGlue SDK (rexruntime.dll, rexgpu-xenos.dll, and the runtime code linked into pacman.exe)
+  BSD 3-Clause; includes code derived from the Xenia project. See ReXGlue-LICENSE.txt.
+  https://github.com/rexglue/rexglue-sdk
+
+SDL3 (linked statically into the ReXGlue runtime)
+  zlib license. See SDL3-LICENSE.txt.
+  https://www.libsdl.org
+
+FFmpeg libavcodec / libavutil (XMA audio decoding, linked into the ReXGlue runtime)
+  GNU Lesser General Public License, version 2.1 or later.
+  Source: https://ffmpeg.org
+
+Microsoft Visual C++ runtime (msvcp140*.dll, vcruntime140*.dll)
+  Redistributable files from Visual Studio, deployed next to the application as Microsoft permits.
+
+Game files (default.xex, media\, data\) are not included and must come from your own copy of the game.

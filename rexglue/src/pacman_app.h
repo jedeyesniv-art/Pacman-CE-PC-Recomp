@@ -27,17 +27,45 @@ class PacmanApp : public rex::ReXApp {
 
   // Defaults so pacman.exe runs with no arguments; --game_data_root and --gpu_plugin still override them.
 
-  // Game data: the nearest private\ folder holding default.xex, searching up from the exe (the repo layout
-  // puts the build in rexglue\out\build\<preset>\). Left empty if not found, so the SDK asks for it.
   void OnConfigurePaths(rex::PathConfig& paths) override {
-    if (!paths.game_data_root.empty())
-      return;
-    for (auto dir = rex::filesystem::GetExecutableFolder(); dir.has_relative_path(); dir = dir.parent_path()) {
-      if (std::filesystem::exists(dir / "private" / "default.xex")) {
-        paths.game_data_root = dir / "private";
-        return;
-      }
+    const auto exe_dir = rex::filesystem::GetExecutableFolder();
+    if (paths.game_data_root.empty())
+      paths.game_data_root = FindGameData(exe_dir);
+    UsePortableUserData(exe_dir, paths);
+  }
+
+  // Game data, first match: game\ next to the exe (the portable layout), the exe's own folder, or the
+  // nearest private\ searching up from the exe (the repo layout, with the build in rexglue\out\build\<preset>\).
+  // Empty if none holds default.xex, so the SDK asks for it.
+  static std::filesystem::path FindGameData(const std::filesystem::path& exe_dir) {
+    if (std::filesystem::exists(exe_dir / "game" / "default.xex"))
+      return exe_dir / "game";
+    if (std::filesystem::exists(exe_dir / "default.xex"))
+      return exe_dir;
+    for (auto dir = exe_dir; dir.has_relative_path(); dir = dir.parent_path()) {
+      if (std::filesystem::exists(dir / "private" / "default.xex"))
+        return dir / "private";
     }
+    return {};
+  }
+
+  // Saves and the shader cache go in userdata\ next to the exe, so the folder is self-contained. Falls back to
+  // the SDK default (Documents\pacman) when that folder can't be created, e.g. under Program Files. Paths set
+  // with --user_data_root / --cache_root are left alone.
+  static void UsePortableUserData(const std::filesystem::path& exe_dir, rex::PathConfig& paths) {
+    const auto sdk_user_dir = rex::filesystem::GetUserFolder() / "pacman";
+    if (paths.user_data_root != sdk_user_dir)
+      return;  // set on the command line
+
+    const auto portable_dir = exe_dir / "userdata";
+    std::error_code error;
+    std::filesystem::create_directories(portable_dir, error);
+    if (error)
+      return;
+
+    if (paths.cache_root == sdk_user_dir / "cache")
+      paths.cache_root = portable_dir / "cache";
+    paths.user_data_root = portable_dir;
   }
 
   // GPU: the SDK leaves GPU emulation off unless a plugin is named. (An explicit empty --gpu_plugin

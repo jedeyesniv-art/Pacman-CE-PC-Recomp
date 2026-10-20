@@ -39,11 +39,30 @@ Run: rexglue\out\build\win-amd64-relwithdebinfo\pacman.exe (no arguments needed)
   Useful options: --log_file=<path> --log_level=debug|trace, --license_mask=<n>, --game_data_root=<dir>
 Defaults set in src\pacman_app.h (command-line values still win, except that an explicit empty/0 value
 can't be told apart from "not set"):
-- game data: the nearest private\ holding default.xex, searching up from the exe
+- game data, first match: game\ next to the exe (portable layout), the exe's folder, then the nearest private\
+  searching up from the exe (repo layout)
+- user data + shader cache: userdata\ next to the exe; falls back to the SDK default Documents\pacman when
+  that can't be created (e.g. Program Files)
 - GPU: gpu_plugin = "xenos" (the SDK default is no GPU emulation; CMakeLists passes GPU_PLUGINS xenos so
   the DLL is staged next to the exe)
 - license_mask = 1 (XamContentGetLicenseMask; bit 0 = purchased) so it runs as the full game, not the XBLA
   trial. The startup log prints the effective value.
+
+## Portable build
+  powershell -ExecutionPolicy Bypass -File tools\package_portable.ps1 [-GameData C:\PacManRecomp\private] [-SkipBuild]
+Builds the Release preset and assembles dist\PacManCE\ (git-ignored): pacman.exe, rexruntime.dll,
+rexgpu-xenos.dll, the four VC++ runtime DLLs the binaries import (msvcp140, msvcp140_atomic_wait,
+vcruntime140, vcruntime140_1, from VS's VC\Redist), README.txt (rexglue\README-portable.txt) and licenses\
+(rexglue\licenses\ + SDK's SDL3 licence; ReXGlue's BSD licence requires its notice with binaries). -GameData
+copies the game files into game\ (everything except default.exe). Re-running keeps game\ and userdata\.
+Everything else the binaries import is part of Windows 10/11.
+
+## Known issues
+- Intermittent heap-corruption crash (0xC0000374) on exit, inside the SDK: ReXApp::OnDestroy -> ~Runtime ->
+  Runtime::Shutdown -> InputSystem::Shutdown -> input device destructors. Seen in two of the owner's sessions
+  (dumps in %LOCALAPPDATA%\CrashDumps); clean CloseMainWindow() exits worked. Gameplay unaffected.
+  Minidumps can be read without a debugger: exception stream + scanning the thread's stack for module
+  addresses, then llvm-symbolizer (pacman.pdb) / nearest export (SDK DLLs ship no PDBs).
 
 ## Codegen config notes
 - After codegen, check for "has no blocks - generating stub" and analysis errors (e.g. UnresolvedCall).
