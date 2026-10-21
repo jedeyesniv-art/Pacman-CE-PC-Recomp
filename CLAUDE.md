@@ -176,9 +176,9 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   owner's "random sub-second dips" too - check that in the next Deck run.
 - Deck run without the profiler (2026-10-21): 5 min, no crash, ~60 fps throughout; owner: "really playable",
   under ten visible bumps. Slow frames are single missed vblanks (30-35 ms), 0-13 per 10 s, not tied to draw
-  count. GPU Commands at ~95% of a core (fast handshake polling) on a 4-core Deck is the suspect; A/B: the Deck
-  folder's pacman.toml now sets pacman_fast_gpu_handshake = false (awaiting result). If no worse, drop it from
-  ApplyWineDefaults (saves a core / battery).
+  count. A/B with pacman_fast_gpu_handshake off: 1.3% vs 0.9% missed vblanks, GPU Commands 30% vs 95% of a
+  core, owner felt off slightly better -> off under Wine too (b72bf7b). Remaining bumps accepted (owner: "not so
+  bad", mostly noticed on the frame graph). dist\PacManCE-Vulkan is now a clean Deck play build (no pacman.toml).
 - The "Pac-Man build <date> <time>" log line is main.cpp's compile time (__DATE__/__TIME__), so it only changes
   when main.cpp or pacman_app.h recompile - not a reliable build ID.
 - Re-applying the patch to a fresh SDK clone: git -C tools\rexglue-sdk-src am ..\..\patches\rexglue-sdk\*.patch
