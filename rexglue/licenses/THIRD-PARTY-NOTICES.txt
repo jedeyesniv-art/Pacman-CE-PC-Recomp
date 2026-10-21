@@ -1,3 +1,10 @@
+Pac-Man CE native port
+======================
+
+This port's own code (the app, hooks and build scripts) is MIT licensed: see PacManCE-LICENSE.txt. The
+third-party software below keeps its own licence, including this project's patches to the ReXGlue SDK
+(released under the SDK's BSD 3-Clause licence, like the SDK itself).
+
 Third-party software in this build
 ==================================
 

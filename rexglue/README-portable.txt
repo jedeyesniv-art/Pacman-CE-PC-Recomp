@@ -13,7 +13,8 @@ Files
   game\               your game files (not included)
   userdata\           created on first run: saves and the shader cache. Delete it to start fresh.
   pacman.toml         optional ReXGlue settings file, read at startup if present (not created automatically)
-  licenses\           third-party notices
+  licenses\           licences: this port (MIT) and the third-party software it uses
+                      (start with THIRD-PARTY-NOTICES.txt)
 
 Requirements
   64-bit Windows 10 or 11 with a Vulkan-capable GPU (Direct3D 12 also works, see the options below),

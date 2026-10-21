@@ -67,6 +67,7 @@ Copy-Item (Join-Path $project "README-portable.txt") (Join-Path $dist "README.tx
 # step with rexglue\licenses\THIRD-PARTY-NOTICES.txt.
 Get-ChildItem (Join-Path $dist "licenses") -File | Remove-Item -Force
 Copy-Item (Join-Path $project "licenses\*") (Join-Path $dist "licenses")
+Copy-Item (Join-Path $repo "LICENSE") (Join-Path $dist "licenses\PacManCE-LICENSE.txt")
 $thirdparty = Join-Path $repo "tools\rexglue-sdk-src\thirdparty"
 $licenseFiles = [ordered]@{
     "sdl3\LICENSE.txt"                            = "SDL3-LICENSE.txt"
