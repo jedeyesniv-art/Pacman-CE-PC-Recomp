@@ -1,7 +1,7 @@
 From a7d4c7b96b5de359d5c16f5dfc67ccc9ca1fb382 Mon Sep 17 00:00:00 2001
 From: John <326213404+jedeyesniv-art@users.noreply.github.com>
 Date: Wed, 21 Oct 2026 13:22:38 +0100
-Subject: [PATCH 2/5] Command processor: precise WAIT_REG_MEM poll step
+Subject: [PATCH 2/6] Command processor: precise WAIT_REG_MEM poll step
  (gpu_wait_reg_mem_sleep_us)
 
 WAIT_REG_MEM with a wait field >= 0x100 slept wait/0x100 ms per failed check;

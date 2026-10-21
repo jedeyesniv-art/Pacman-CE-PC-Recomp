@@ -234,6 +234,13 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   23% job dispatcher spin, ~8% SDL joystick lock taken while draining queued axis-motion events
   (GetControllerIndexFromInstanceID called SDL per event) -> SDK patch 0005 caches each pad's instance id
   (checked against SDL when the pad is added); ~3% ObjectTable::LookupObject lock in XNotifyGetNext (left).
+  Third trace (job workers sampled - profiler registers them from WorkerPollHook; the persistent ones are
+  F80000A0/A4/A8, loading-time threads register first): 49 slow frames / 5 min, 19 of 31 windows clean. Workers in
+  slow frames: ~60% game jobs (sub_8213B718 <- sub_8213C0C8, sub_82157CC0, sub_8207F778), ~25% write-watch fault
+  handling + its lock; main thread 19% waiting for them, 4% XNotifyGetNext ObjectTable lock. So streaming blocks
+  are now ON EVERYWHERE (ApplyStreamingBlocks), and SDK patch 0006 lets them work with the scaled-resolve global
+  watch (they were off at scale > 1, i.e. on the PC): faults 16-26 -> 3-6 per frame at 3x; blurred menu backdrop
+  (scaled render-to-texture) checked.
   Not yet done (owner's list): lighter lwsync/sync fences, -march=x86-64-v3 / PGO for game code, sampling the
   job workers, native CRT routines, presentation buffer (last resort).
 - The "Pac-Man build <date> <time>" log line is main.cpp's compile time (__DATE__/__TIME__), so it only changes

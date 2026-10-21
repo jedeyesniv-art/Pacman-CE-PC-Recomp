@@ -112,25 +112,27 @@ class PacmanApp : public rex::ReXApp {
       if (config.graphics) {
         ApplyDesktopResolutionScale();
         ApplyGpuWaitStep();
+        ApplyStreamingBlocks();
       }
-      if (config.graphics && RunningUnderWine())
-        ApplyWineDefaults();
     }
   }
 
-  // Under Wine/Proton (Steam Deck) access violations and memory protection changes are very slow: a profile on
-  // the Deck (2026-10-21) showed the GPU thread spending ~45% of its time re-protecting memory the game keeps
-  // rewriting (per-draw vertex data), and the main thread waiting on it.
-  // shared_memory_streaming_blocks (our SDK patch, patches\rexglue-sdk) stops protecting such blocks: locked
-  // 60 fps on the Deck. pacman_fast_gpu_handshake is left off: with the patch it no longer helps (A/B on the
-  // Deck: 0.9% vs 1.3% missed vblanks, owner felt off was slightly better) and it keeps a core busy polling.
-  // Settings given on the command line or in the config file win. The plugin cvar only exists in a plugin
-  // built from our patched SDK.
-  static void ApplyWineDefaults() {
+  // shared_memory_streaming_blocks (our SDK patch, patches\rexglue-sdk): the GPU emulation write-protects memory
+  // it has copied, and the game keeps rewriting some of it (per-draw vertex data, sprite data from the job
+  // workers), so every rewrite costs an access violation plus a protection change, under a lock other threads
+  // also need. The patch stops protecting such blocks and re-uploads them on use instead.
+  // Under Wine/Proton those costs are huge (Deck profile 2026-10-21: the GPU thread spent ~45% of its time
+  // re-protecting): locked 60 fps on the Deck with the patch. On Windows they are smaller but showed up in the
+  // gameplay traces too (job workers ~25% fault handling in slow frames), so it is on everywhere since then.
+  // pacman_fast_gpu_handshake stays off: with the patch it no longer helps (Deck A/B: 0.9% vs 1.3% missed
+  // vblanks, owner felt off was slightly better) and it keeps a core busy polling.
+  // Settings given on the command line or in the config file win.
+  static void ApplyStreamingBlocks() {
     if (rex::cvar::GetFlagSource("shared_memory_streaming_blocks") == rex::cvar::Source::kDefault &&
         !rex::cvar::SetFlagByName("shared_memory_streaming_blocks", "true"))
-      REXLOG_INFO("Wine defaults: this GPU plugin has no shared_memory_streaming_blocks");
-    REXLOG_INFO("Wine defaults: shared_memory_streaming_blocks={} pacman_fast_gpu_handshake={}",
+      REXLOG_INFO("this GPU plugin has no shared_memory_streaming_blocks");
+    REXLOG_INFO("{}: shared_memory_streaming_blocks={} pacman_fast_gpu_handshake={}",
+                RunningUnderWine() ? "Wine/Proton" : "Windows",
                 rex::cvar::GetFlagByName("shared_memory_streaming_blocks"),
                 rex::cvar::GetFlagByName("pacman_fast_gpu_handshake"));
   }

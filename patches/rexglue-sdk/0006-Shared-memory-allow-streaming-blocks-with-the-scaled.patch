@@ -1,0 +1,42 @@
+From 0feaf8386d44e9c7d710c52ebe1cd6ba21b80a19 Mon Sep 17 00:00:00 2001
+From: John <326213404+jedeyesniv-art@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 15:52:56 +0100
+Subject: [PATCH 6/6] Shared memory: allow streaming blocks with the
+ scaled-resolve global watch
+
+At draw resolution scales above 1 the texture cache registers a global watch, and
+streaming blocks were disabled entirely. A block only becomes streaming once none
+of its pages is GPU-written, and each such page lost that state through an
+invalidation that fired the global watch; a later resolve goes through
+RangeWrittenByGpu, which makes the block non-streaming and protected again. So
+the watch never misses a write that matters. PC at 3x: faults 16-26 -> 3-6 per
+frame.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/graphics/shared_memory.cpp | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
+index e0c0313..465f53f 100644
+--- a/src/graphics/shared_memory.cpp
++++ b/src/graphics/shared_memory.cpp
+@@ -598,9 +598,12 @@ std::pair<uint32_t, uint32_t> SharedMemory::MemoryInvalidationCallback(
+   auto global_lock = global_critical_region_.Acquire();
+ 
+   // Count CPU rewrites per block; a block rewritten again and again becomes streaming (see MakeRangeValid).
+-  // Not with GPU-written data in it, texture watches on it, or global watches (scaled resolves), which all rely
+-  // on seeing CPU writes.
+-  if (REXCVAR_GET(shared_memory_streaming_blocks) && global_watches_.empty()) {
++  // Not with GPU-written data in it or texture watches on it, which rely on seeing CPU writes. The global watch
++  // (scaled resolves, at draw resolution scales above 1) is fine: a block only qualifies once no page in it is
++  // GPU-written, and each such page lost that state through an invalidation that fired the global watch (which
++  // clears the scaled state for good); a later resolve into the block goes through RangeWrittenByGpu, which
++  // makes it non-streaming and protected again before the scaled state is used.
++  if (REXCVAR_GET(shared_memory_streaming_blocks)) {
+     UpdateStreamingEpoch();
+     for (uint32_t block = block_first; block <= block_last; ++block) {
+       if (block_streaming_[block] || ++block_invalidations_[block] < kStreamingInvalidationsPerEpoch) {
+-- 
+2.55.0.windows.5
+
