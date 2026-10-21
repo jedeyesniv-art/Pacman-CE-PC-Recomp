@@ -60,6 +60,11 @@ can't be told apart from "not set"):
   REXCVAR_DECLARE on them fails to link.
 - mouse cursor: auto-hidden over the window (Window::CursorVisibility::kAutoHidden, set in OnCreateDialogs, the
   first hook after the window exists); shows while the mouse moves, hides after 1.5 s idle.
+- keyboard controls (ApplyKeyboardControls): the SDK's MnkInputDriver (always created, off unless mnk_mode) is
+  turned on; it is a synthetic device merged into guest user 0 with any real pad. Binds = comma lists of key
+  names with exact modifier matching. Set: D-pad = Up,W / Down,S / Left,A / Right,D; A = Space,Return;
+  B = Escape; Start = P; every other keybind_* cleared (SDK defaults put arrows on the right stick, Shift+arrows
+  on the D-pad, etc.). Only binds still at their default are set. SDK source: src/input/mnk/mnk_input_driver.cpp.
 - present_letterbox = true: any window/screen shape keeps the 16:9 image unstretched, with black bars.
 - fullscreen = true (unless set elsewhere). F11 / Alt+Enter toggle it (PacmanApp::OnKeyDown; the SDK has no
   key for it). SDL's KeyEvent always has repeat_count 1 (auto-repeat is prev_state), and a mode switch makes

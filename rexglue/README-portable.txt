@@ -18,6 +18,15 @@ Files
 Requirements
   64-bit Windows 10 or 11 with a Direct3D 12 GPU.
 
+Controls
+  An Xbox controller works as is. The keyboard works too, at the same time as a controller:
+    Arrow keys or W A S D   move (D-pad)
+    Space or Enter          A
+    Escape                  B
+    P                       Start (pause)
+  To change a key, set its keybind_* option, e.g. --keybind_start=P,Tab (a comma list of key names), or turn
+  the keyboard off with --mnk_mode=false.
+
 Display
   The game renders at your main monitor's resolution: its 1280x720 picture is scaled up by a whole number
   to fill the screen (3x on a 4K screen, 2x on 1440p, 16:10 and ultrawide screens). On a screen or window

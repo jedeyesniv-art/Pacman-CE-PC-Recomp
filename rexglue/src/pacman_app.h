@@ -115,10 +115,50 @@ class PacmanApp : public rex::ReXApp {
     if (rex::cvar::GetFlagSource("fullscreen") == rex::cvar::Source::kDefault)
       REXCVAR_SET(fullscreen, true);
 
+    ApplyKeyboardControls();
+
     if (REXCVAR_GET(license_mask) == 0)
       REXCVAR_SET(license_mask, 1);
     REXLOG_INFO("license_mask = 0x{:X} ({})", REXCVAR_GET(license_mask),
                 (REXCVAR_GET(license_mask) & 1) ? "full version" : "trial");
+  }
+
+  // Keyboard controls through the SDK's keyboard-as-controller driver (off by default). It merges into player 1
+  // together with any real pad, so both work at once. Bind values are comma lists of key names; modifiers must
+  // match exactly ("Up" doesn't fire while Shift is held). The SDK's own defaults spread the pad over half the
+  // keyboard (arrows on the right stick, Shift+arrows on the D-pad, Q/E triggers...), so every bind is set here:
+  // the game only needs movement, A, B and Start. Binds given on the command line or in the config file win.
+  static void ApplyKeyboardControls() {
+    struct Bind {
+      const char* name;
+      const char* keys;
+    };
+    static constexpr Bind Binds[] = {
+        {"keybind_dpad_up", "Up,W"},     {"keybind_dpad_down", "Down,S"},
+        {"keybind_dpad_left", "Left,A"}, {"keybind_dpad_right", "Right,D"},
+        {"keybind_a", "Space,Return"},   {"keybind_b", "Escape"},
+        {"keybind_start", "P"},          {"keybind_back", ""},
+        {"keybind_x", ""},               {"keybind_y", ""},
+        {"keybind_left_trigger", ""},    {"keybind_right_trigger", ""},
+        {"keybind_left_shoulder", ""},   {"keybind_right_shoulder", ""},
+        {"keybind_lstick_up", ""},       {"keybind_lstick_down", ""},
+        {"keybind_lstick_left", ""},     {"keybind_lstick_right", ""},
+        {"keybind_lstick_press", ""},    {"keybind_rstick_up", ""},
+        {"keybind_rstick_down", ""},     {"keybind_rstick_left", ""},
+        {"keybind_rstick_right", ""},    {"keybind_rstick_press", ""},
+        {"keybind_guide", ""},
+    };
+    if (rex::cvar::GetFlagSource("mnk_mode") == rex::cvar::Source::kDefault)
+      rex::cvar::SetFlagByName("mnk_mode", "true");
+    for (const Bind& bind : Binds) {
+      if (rex::cvar::GetFlagSource(bind.name) == rex::cvar::Source::kDefault &&
+          !rex::cvar::SetFlagByName(bind.name, bind.keys))
+        REXLOG_WARN("keyboard controls: couldn't set {}", bind.name);
+    }
+    REXLOG_INFO("keyboard controls: mnk_mode={} up=[{}] a=[{}] b=[{}] start=[{}]",
+                rex::cvar::GetFlagByName("mnk_mode"), rex::cvar::GetFlagByName("keybind_dpad_up"),
+                rex::cvar::GetFlagByName("keybind_a"), rex::cvar::GetFlagByName("keybind_b"),
+                rex::cvar::GetFlagByName("keybind_start"));
   }
 
   // No achievement pop-ups. The toast is the one ImGui dialog that always exists, and any dialog registers ImGui
