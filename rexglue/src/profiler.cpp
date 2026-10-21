@@ -228,6 +228,7 @@ void SamplerThread() {
   HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
   std::vector<Target> targets;
   LoadModules();
+  REXLOG_INFO("profiler: {} modules loaded", g_modules.size());
   FindTargets(targets);
   for (Target& target : targets)
     target.samples.reserve(8192);
@@ -289,5 +290,6 @@ void ProfilerMaybeStart() {
   if (started || !REXCVAR_GET(pacman_profile))
     return;
   started = true;
+  REXLOG_INFO("profiler: starting");
   std::thread(SamplerThread).detach();
 }

@@ -128,6 +128,8 @@ class PacmanApp : public rex::ReXApp {
   // default, an explicit 0 can't be told apart from "not set", so trial mode can't be forced this way.)
   void OnPostInitLogging() override {
     ProfilerNoteUiThread();
+    REXLOG_INFO("Pac-Man build {} {}; profiler {}", __DATE__, __TIME__,
+                rex::cvar::GetFlagByName("pacman_profile") == "true" ? "on" : "off");
 
     // Present like Xenia does: from the guest output thread, once per guest frame. When the presenter paints on
     // the UI thread instead (at the display refresh, 120 Hz here), the game's swap ends up waiting about one
