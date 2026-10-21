@@ -18,6 +18,7 @@
 #include <rex/ui/overlay/achievement_notification.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -56,9 +57,26 @@ class PacmanApp : public rex::ReXApp {
 
   static std::unique_ptr<rex::ui::WindowedApp> Create(
       rex::ui::WindowedAppContext& ctx) {
-    return std::unique_ptr<PacmanApp>(new PacmanApp(ctx, "pacman",
-        PPCImageConfig));
+    auto app = std::unique_ptr<PacmanApp>(new PacmanApp(ctx, "pacman", PPCImageConfig));
+    instance_ = app.get();
+    return app;
   }
+
+  static PacmanApp* instance() { return instance_; }
+
+  // The game's Achievements menu item calls XamShowAchievementsUI, a stub in the SDK, so it did nothing. It now
+  // opens the SDK's achievements overlay (the F7 bind, bind_achievements) instead, and B on the pad closes it again
+  // (the overlay has no close button; F7 still works). Called from guest threads (main.cpp's hooks).
+  void RequestAchievementsOverlay(bool open) {
+    app_context().CallInUIThread([this, open] {
+      if (window() == nullptr || achievements_open_.load() == open)
+        return;
+      rex::ui::KeyEvent press(window(), AchievementsKey(), 1, false, false, false, false, false);
+      if (rex::ui::ProcessKeyEvent(press))
+        achievements_open_.store(open);
+    });
+  }
+  bool achievements_open() const { return achievements_open_.load(); }
 
   // Defaults so pacman.exe runs with no arguments; --game_data_root and --gpu_plugin still override them.
 
@@ -336,8 +354,18 @@ class PacmanApp : public rex::ReXApp {
       e.set_handled(true);
       return;
     }
-    rex::ui::ProcessKeyEvent(e);
+    // Track the achievements overlay's state: the bind toggles it (see RequestAchievementsOverlay).
+    const bool achievements_key = e.virtual_key() == AchievementsKey();
+    if (rex::ui::ProcessKeyEvent(e) && achievements_key)
+      achievements_open_.store(!achievements_open_.load());
   }
+
+  static rex::ui::VirtualKey AchievementsKey() {
+    return rex::ui::ParseVirtualKey(rex::cvar::GetFlagByName("bind_achievements"));
+  }
+
+  static inline PacmanApp* instance_ = nullptr;
+  std::atomic<bool> achievements_open_{false};
 
   // Shut input down while the window still exists. ReXApp::OnDestroy destroys the window before the runtime,
   // and the runtime's shutdown then destroys the mouse/keyboard input driver, whose destructor detaches from the

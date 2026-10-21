@@ -127,8 +127,28 @@ licenses\ (2026-10-21): THIRD-PARTY-NOTICES.txt lists every library linked into 
 target_link_libraries; Tracy is debug-only, RenderDoc/SPIRV-Tools/DXC headers only, Vulkan loader not shipped)
 with exact revisions; package_portable.ps1 copies the licence texts from toolsexglue-sdk-src	hirdparty.
 LGPL parts: FFmpeg (WMA Pro decoder subset, LGPL-2.1+, no GPL files) and libmspack (lzxd.c) are static in
-rexruntime.dll. Release to-dos: attach FFmpeg + libmspack source archives at those revisions to the release
-(the notices promise it), publish the SDK patches, pick a licence for this project's own code.
+rexruntime.dll.
+
+## Release (prepared 2026-10-21, version 1.0.0 = CMake project VERSION)
+- package_portable.ps1 -Release writes dist\release\: PacManCE-<ver>-windows.zip (play folder minus game\
+  contents, userdata\ and trace-session.bat, with game\PUT YOUR GAME HERE.txt; a leak check refuses to zip if any
+  .xex/.xzp/.xpr/.xma/.bin/.xbx, media\/data\/userdata\ path or LIVE/CON/PIRS/XEX2 header is in it),
+  PacManCE-<ver>-symbols.zip (dist\symbols), and the LGPL source archives copied from dist\release-sources\.
+  The release zip was tested unpacked fresh with only the STFS package in game\: boots to the title.
+- LGPL source archives (promised by THIRD-PARTY-NOTICES): made with git archive from the SDK submodules at the
+  exact revisions: dist\release-sources\FFmpeg-0604b464....tar.gz, libmspack-30590772....tar.gz (pristine
+  tree; the local libmspack symlink fix is not in it). Recreate the same way if dist\ is lost.
+- Public docs: README.md (repo front page: features, playing, building, layout, licence), patches\rexglue-sdk\
+  README.md (base commit, what each patch does and why, how to apply and build), rexglue\README-portable.txt
+  (players). Own code: MIT-0 (LICENSE). Everything else in the repo root (chat logs, reports, xextool.exe) is
+  git-ignored. docs\rexglue-issue-exit-crash.md is a draft upstream issue (not posted).
+- Title menu checked: Leaderboards shows the game's own "Failed to load leaderboards / sign in to Xbox Live"
+  (fine, documented); Achievements called XamShowAchievementsUI (an SDK stub: nothing happened) - now
+  AchievementsUiHook (main.cpp, entry of the wrapper sub_820C9CC0) opens the SDK achievements overlay via the
+  bind_achievements key (F7) on the UI thread; PacmanApp tracks its open state (also through OnKeyDown) and B on
+  the pad closes it (AchievementsKeystroke, fed by autodemo.cpp's keystroke hook). Return to Arcade quits cleanly.
+- Not done (owner's call): pushing the repo public and creating the GitHub release; offering the SDK patches
+  upstream.
 
 ## Gameplay slowdown - SOLVED 2026-10-20 (root cause: host presentation coupled to the guest frame)
 ReXApp always creates an achievement-toast ImGui dialog; any dialog registers ImGui as a UI drawer, which

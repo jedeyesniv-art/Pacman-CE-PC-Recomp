@@ -31,6 +31,11 @@ Controls
   To change a key, set its keybind_* option, e.g. --keybind_start=P,Tab (a comma list of key names), or turn
   the keyboard off with --mnk_mode=false.
 
+Xbox Live features
+  Leaderboards needed Xbox Live, which this build doesn't have; the screen says it failed to load. Your best
+  score is kept on this PC and shown as HI. Achievements are recorded on this PC too: choose Achievements on
+  the title screen (or press F7 at any time) to see them; B (or F7) closes the list.
+
 Random mazes (bonus mode)
   On the title screen, press R3 (click the right stick; R on the keyboard): the logo turns red, and
   Championship Mode now plays its mazes in a random order, a new one every game (the first maze stays).

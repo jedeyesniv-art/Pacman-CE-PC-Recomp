@@ -334,3 +334,9 @@ address = 0x820A8CE8
 name = "SaveCommitHook"
 registers = ["r3", "r4"]
 return_on_true = true
+
+# The title menu's Achievements item: entry of sub_820C9CC0 (li r4,0; b XamShowAchievementsUI, a stub in the SDK).
+# AchievementsUiHook (main.cpp) opens the SDK's achievements overlay instead.
+[[midasm_hook]]
+address = 0x820C9CC0
+name = "AchievementsUiHook"

@@ -6,11 +6,15 @@
 # the Vulkan backend and our patches (tools\rexglue-sdk-vk, see CLAUDE.md), with line-table debug info so that
 # crash logs can be symbolized: the matching PDBs go to dist\symbols\ (not part of the play folder).
 #
+# -Release also writes the publishable set to dist\release\: PacManCE-<version>-windows.zip (no game files, no
+# userdata - checked), PacManCE-<version>-symbols.zip, and the LGPL source archives from dist\release-sources\.
+#
 # Usage (from anywhere):
-#   powershell -ExecutionPolicy Bypass -File tools\package_portable.ps1 [-GameData C:\PacManRecomp\private] [-SkipBuild]
+#   powershell -ExecutionPolicy Bypass -File tools\package_portable.ps1 [-GameData C:\PacManRecomp\private] [-SkipBuild] [-Release]
 param(
     [string]$GameData = "",
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$Release
 )
 
 $ErrorActionPreference = "Stop"
@@ -114,3 +118,37 @@ Copy-Item (Join-Path $dist "pacman.exe"), (Join-Path $buildDir "pacman.pdb"), (J
 
 Write-Host "Portable folder: $dist"
 Get-ChildItem $dist | Select-Object Name, Length | Format-Table -AutoSize
+
+if ($Release) {
+    $version = (Select-String -Path (Join-Path $project "CMakeLists.txt") -Pattern 'project\(pacman VERSION ([0-9.]+)').Matches[0].Groups[1].Value
+    $releaseDir = Join-Path $repo "dist\release"
+    $stage = Join-Path $releaseDir "stage\PacManCE"
+    if (Test-Path $releaseDir) { Remove-Item $releaseDir -Recurse -Force }
+    New-Item -ItemType Directory -Force (Join-Path $stage "game") | Out-Null
+    # The play folder minus everything personal: game\ (game files), userdata\ (saves), and the trace launcher.
+    Get-ChildItem $dist -File | Where-Object { $_.Name -ne "trace-session.bat" } | Copy-Item -Destination $stage
+    Copy-Item (Join-Path $dist "licenses") $stage -Recurse
+    Set-Content -Encoding ascii (Join-Path $stage "game\PUT YOUR GAME HERE.txt") @"
+Put your own copy of Pac-Man Championship Edition here: the package file dumped from your console
+(a file with a long hexadecimal name), or the unpacked files (default.xex, media\, data\). See README.txt.
+"@
+    # Safety net: nothing from the game may be in a published zip.
+    $leak = Get-ChildItem $stage -Recurse -File | Where-Object {
+        $_.Extension -in ".xex", ".xzp", ".xpr", ".xma", ".bin", ".xbx" -or $_.FullName -match '\\(userdata|media|data)\\' -or
+        ($_.Length -ge 4 -and [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($_.FullName), 0, 4) -in "LIVE", "CON ", "PIRS", "XEX2")
+    }
+    if ($leak) { $leak | ForEach-Object { $_.FullName }; throw "Release folder contains game or user files - not zipped" }
+    $zip = Join-Path $releaseDir "PacManCE-$version-windows.zip"
+    Push-Location (Split-Path $stage)
+    tar -a -c -f $zip PacManCE
+    Pop-Location
+    Push-Location $symbols
+    tar -a -c -f (Join-Path $releaseDir "PacManCE-$version-symbols.zip") *
+    Pop-Location
+    Remove-Item (Split-Path $stage) -Recurse -Force
+    $sources = Join-Path $repo "dist\release-sources"
+    if (Test-Path $sources) { Copy-Item (Join-Path $sources "*.tar.gz") $releaseDir }
+    else { Write-Warning "No LGPL source archives in $sources - see CLAUDE.md (Release)" }
+    Write-Host "Release files: $releaseDir"
+    Get-ChildItem $releaseDir | Select-Object Name, Length | Format-Table -AutoSize
+}

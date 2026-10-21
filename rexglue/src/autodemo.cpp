@@ -140,7 +140,8 @@ void InjectKeystroke(PPCRegister& r3, PPCRegister& r5) {
 }
 }  // namespace
 
-void RandomMazesKeystroke(uint16_t virtual_key, uint16_t flags);  // random_mazes.cpp
+void RandomMazesKeystroke(uint16_t virtual_key, uint16_t flags);   // random_mazes.cpp
+void AchievementsKeystroke(uint16_t virtual_key, uint16_t flags);  // main.cpp
 
 // The menus read button presses as keystroke events instead (XamInputGetKeystrokeEx, wrapped by sub_820C9820;
 // hooked on its return: r3 = result, 0 = a keystroke; r5 = the XINPUT_KEYSTROKE the game passed: VirtualKey,
@@ -154,4 +155,5 @@ void AutoDemoKeystrokeHook(PPCRegister& r3, PPCRegister& r5) {
     flags = _byteswap_ushort(*reinterpret_cast<const uint16_t*>(keystroke + 4));
   }
   RandomMazesKeystroke(virtual_key, flags);
+  AchievementsKeystroke(virtual_key, flags);
 }
