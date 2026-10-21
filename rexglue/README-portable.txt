@@ -38,6 +38,8 @@ Display
 
 Options (on the command line, e.g. pacman.exe --fullscreen=false)
   --fullscreen=false                         start in a window
+  --pacman_gpu_backend=d3d12|vulkan          graphics API (default: Direct3D 12 on Windows, Vulkan under
+                                             Proton/Wine, e.g. on the Steam Deck; Vulkan needs the Vulkan build)
   --resolution_scale=<1-7>                   render scale (default: chosen from the desktop resolution)
   --pacman_playfield_offset=<pixels>         move the picture up (default 40; 0 = original position)
   --log_file=pacman.log --log_level=debug   write a log

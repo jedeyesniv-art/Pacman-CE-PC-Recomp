@@ -136,8 +136,18 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   10-23 ms fits the same per-draw work ~10x slower through Wine + vkd3d-proton.
 - Middle option before a Linux port: the SDK builds the Vulkan backend on Windows too (REXGLUE_USE_VULKAN, OFF
   in the prebuilt win-amd64 SDK; plugin_main.cpp picks the backend from GpuCreateInfo::backend). A Windows
-  build with Vulkan skips vkd3d-proton under Proton (winevulkan passes through to RADV). Needs the SDK built
-  from source.
+  build with Vulkan skips vkd3d-proton under Proton (winevulkan passes through to RADV).
+- Vulkan build (2026-10-21, awaiting a Deck test): SDK source at the prebuilt's commit bd833a2a in
+  tools\rexglue-sdk-src (ignored; submodules shallow, moltenvk skipped). Git on Windows checks libmspack's
+  symlinks (cabextract/mspack/*) out as text files - replaced with copies of their targets. Configure inside
+  vcvars64: cmake --preset win-amd64 -DREXGLUE_USE_VULKAN=ON -DCMAKE_INSTALL_PREFIX=C:/PacManRecomp/tools/rexglue-sdk-vk/win-amd64
+  then cmake --build out/build/win-amd64 --config Release --target install --parallel (Release only, ~5 min).
+  App: --pacman_gpu_backend=any|d3d12|vulkan (main.cpp); OnPreSetup passes it to LoadGpuPlugin, "any" becomes
+  vulkan under Wine (ntdll exports wine_get_version), falling back to the default if the plugin lacks it.
+  package_portable.ps1 -Vulkan builds out\build\win-amd64-release-vk -> dist\PacManCE-Vulkan.
+  On Windows the Vulkan backend renders correctly (screenshots matched D3D12 at 1x and 3x), 60 fps, similar
+  CPU; it logs "Vulkan draw resolution scaling is experimental". Imports unchanged (vulkan-1.dll loaded at
+  runtime). Before a public release: add licences for glslang, SPIRV-Tools, VMA, Vulkan headers.
 
 ## Known issues
 - (Resolved, see above) Game-logic slowdown in places (owner, 2026-10-20 portable build): presented frame rate stays constant,

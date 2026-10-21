@@ -32,6 +32,9 @@ REXCVAR_DECLARE(uint32_t, license_mask);
 REXCVAR_DECLARE(bool, host_present_from_non_ui_thread);
 // Keep the game's 16:9 image unstretched in any window shape (pillar/letterbox bars instead of stretching).
 REXCVAR_DECLARE(bool, present_letterbox);
+// Graphics API of the GPU plugin: any (D3D12 if available; Vulkan under Wine/Proton), d3d12 or vulkan
+// (see OnPreSetup).
+REXCVAR_DECLARE(std::string, pacman_gpu_backend);
 
 class PacmanApp : public rex::ReXApp {
  public:
@@ -86,6 +89,9 @@ class PacmanApp : public rex::ReXApp {
     paths.user_data_root = portable_dir;
   }
 
+  // GPU backend: ReXApp always asks the plugin for "any" (D3D12 first on Windows). A plugin built with the
+  // Vulkan backend too (SDK built from source with REXGLUE_USE_VULKAN=ON) can run Vulkan instead, which Proton
+  // passes almost straight to the native driver rather than translating D3D12 through vkd3d-proton.
   // GPU: the SDK leaves GPU emulation off unless a plugin is named. (An explicit empty --gpu_plugin
   // can't be told apart from "not set", so GPU emulation can't be disabled this way any more.)
   // The plugin is loaded here rather than by ReXApp right after this hook, so its settings (the render
@@ -94,10 +100,25 @@ class PacmanApp : public rex::ReXApp {
     if (config.gpu_plugin.empty())
       config.gpu_plugin = "xenos";
     if (!config.graphics) {
-      config.graphics = rex::system::LoadGpuPlugin(config.gpu_plugin);
+      std::string backend = REXCVAR_GET(pacman_gpu_backend);
+      if (backend == "any" && RunningUnderWine()) {
+        backend = "vulkan";  // falls back below if this plugin has no Vulkan backend
+        REXLOG_INFO("running under Wine/Proton: preferring the Vulkan backend");
+      }
+      config.graphics = rex::system::LoadGpuPlugin(config.gpu_plugin, backend);
+      if (!config.graphics && backend != "any") {
+        REXLOG_WARN("GPU backend '{}' unavailable in this build, using the default", backend);
+        config.graphics = rex::system::LoadGpuPlugin(config.gpu_plugin);
+      }
       if (config.graphics)
         ApplyDesktopResolutionScale();
     }
+  }
+
+  // Wine (and so Proton) exports wine_get_version from its ntdll; Windows never does.
+  static bool RunningUnderWine() {
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    return ntdll != nullptr && GetProcAddress(ntdll, "wine_get_version") != nullptr;
   }
 
   // License: bit 0 marks the game as purchased, unlocking the full version instead of the trial. Runs after

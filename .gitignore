@@ -15,6 +15,10 @@ tools/xenonRecomp/
 tools/rexglue-sdk/
 tools/rexglue-sdk-dl/
 
+# ReXGlue SDK source (cloned, built with the Vulkan backend) and its install
+tools/rexglue-sdk-src/
+tools/rexglue-sdk-vk/
+
 # Build outputs (dist\ is the portable folder and may hold a copy of the game files)
 build/
 dist/

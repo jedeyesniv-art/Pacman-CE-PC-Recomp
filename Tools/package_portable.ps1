@@ -3,18 +3,23 @@
 # Game files are only copied when -GameData is given (dist\ is git-ignored; never commit game files).
 #
 # Usage (from anywhere):
-#   powershell -ExecutionPolicy Bypass -File tools\package_portable.ps1 [-GameData C:\PacManRecomp\private] [-SkipBuild]
+#   powershell -ExecutionPolicy Bypass -File tools\package_portable.ps1 [-GameData C:\PacManRecomp\private] [-SkipBuild] [-Vulkan]
+# -Vulkan: build against the SDK built from source with the Vulkan backend too (tools\rexglue-sdk-vk) instead of
+# the prebuilt D3D12-only one, in out\build\win-amd64-release-vk, into dist\PacManCE-Vulkan\. That exe picks
+# Vulkan by itself under Wine/Proton and keeps D3D12 on Windows.
 param(
     [string]$GameData = "",
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$Vulkan
 )
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $repo "rexglue"
-$buildDir = Join-Path $project "out\build\win-amd64-release"
-$sdk = Join-Path $repo "tools\rexglue-sdk\win-amd64"
-$dist = Join-Path $repo "dist\PacManCE"
+$suffix = if ($Vulkan) { "-vk" } else { "" }
+$buildDir = Join-Path $project "out\build\win-amd64-release$suffix"
+$sdk = Join-Path $repo $(if ($Vulkan) { "tools\rexglue-sdk-vk\win-amd64" } else { "tools\rexglue-sdk\win-amd64" })
+$dist = Join-Path $repo $(if ($Vulkan) { "dist\PacManCE-Vulkan" } else { "dist\PacManCE" })
 
 $vsRoot = "C:\Program Files\Microsoft Visual Studio\18\Community"
 $vcvars = Join-Path $vsRoot "VC\Auxiliary\Build\vcvars64.bat"
@@ -25,9 +30,9 @@ if (-not $SkipBuild) {
     # so the commands are chained with "&" and success is judged by the build output instead.
     $env:PATH = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;$env:PATH"
     $sdkCmake = $sdk -replace '\\', '/'
-    $log = Join-Path $buildDir "..\package_build.log"
+    $log = Join-Path $buildDir "..\package_build$suffix.log"
     New-Item -ItemType Directory -Force (Split-Path $log) | Out-Null
-    cmd /c "`"$vcvars`" >nul 2>&1 & set `"PATH=$llvmBin;%PATH%`" & cd /d `"$project`" & cmake --preset win-amd64-release -DCMAKE_PREFIX_PATH=$sdkCmake > `"$log`" 2>&1 & cmake --build --preset win-amd64-release >> `"$log`" 2>&1"
+    cmd /c "`"$vcvars`" >nul 2>&1 & set `"PATH=$llvmBin;%PATH%`" & cd /d `"$project`" & cmake --preset win-amd64-release -B `"$buildDir`" -DCMAKE_PREFIX_PATH=$sdkCmake > `"$log`" 2>&1 & cmake --build `"$buildDir`" >> `"$log`" 2>&1"
     if (Select-String -Path $log -Pattern "FAILED|error:" -Quiet) {
         Get-Content $log | Select-String -Pattern "FAILED|error:" | Select-Object -First 20
         throw "Release build failed; see $log"
