@@ -146,6 +146,43 @@ struct Sample {
   uintptr_t own[2] = {};  // first two frames in our own modules, leaf side first
 };
 
+// Recent main-thread samples with time and deeper stacks, for the frame trace (ProfilerDumpHistory).
+struct HistorySample {
+  int64_t nanoseconds = 0;
+  uintptr_t leaf = 0;
+  uintptr_t own[6] = {};
+};
+constexpr size_t HistorySize = 8192;
+std::mutex g_historyMutex;
+HistorySample g_history[HistorySize];
+uint64_t g_historyNext = 0;
+
+int64_t SteadyNanoseconds() {
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
+// module+offset, without the sampler's module table (safe from any thread).
+std::string DescribeAnywhere(uintptr_t address) {
+  if (address == 0)
+    return "-";
+  HMODULE module = nullptr;
+  if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                          reinterpret_cast<LPCWSTR>(address), &module))
+    return "?";
+  wchar_t path[MAX_PATH];
+  const DWORD length = GetModuleFileNameW(module, path, MAX_PATH);
+  const wchar_t* name = path;
+  for (DWORD i = 0; i < length; i++)
+    if (path[i] == L'\\' || path[i] == L'/')
+      name = path + i + 1;
+  char narrow[MAX_PATH];
+  WideCharToMultiByte(CP_UTF8, 0, name, -1, narrow, sizeof(narrow), nullptr, nullptr);
+  char text[160];
+  std::snprintf(text, sizeof(text), "%s+0x%llX", narrow, (unsigned long long)(address - uintptr_t(module)));
+  return text;
+}
+
 struct Target {
   DWORD id = 0;
   HANDLE handle = nullptr;
@@ -282,6 +319,20 @@ void SamplerThread() {
           sample.own[found++] = frames[i];
       }
       target.samples.push_back(sample);
+
+      if (target.name.rfind("Main XThread", 0) == 0) {
+        HistorySample history;
+        history.nanoseconds = SteadyNanoseconds();
+        history.leaf = frames[0];
+        int deep = 0;
+        for (int i = 0; i < count && deep < 6; i++) {
+          const Module* module = FindModule(frames[i]);
+          if (module != nullptr && module->own)
+            history.own[deep++] = frames[i];
+        }
+        std::lock_guard lock(g_historyMutex);
+        g_history[g_historyNext++ % HistorySize] = history;
+      }
     }
 
     const auto now = std::chrono::steady_clock::now();
@@ -295,6 +346,33 @@ void SamplerThread() {
 }
 
 }  // namespace
+
+// Logs the main thread's samples between from and to (steady-clock ns), times relative to center, merging runs of
+// identical stacks. Used by the frame trace (frame_stats.cpp) around slow frames.
+void ProfilerDumpHistory(int64_t center, int64_t from, int64_t to) {
+  std::vector<HistorySample> samples;
+  {
+    std::lock_guard lock(g_historyMutex);
+    for (uint64_t i = g_historyNext > HistorySize ? g_historyNext - HistorySize : 0; i < g_historyNext; i++) {
+      const HistorySample& sample = g_history[i % HistorySize];
+      if (sample.nanoseconds >= from && sample.nanoseconds <= to)
+        samples.push_back(sample);
+    }
+  }
+  for (size_t i = 0; i < samples.size();) {
+    size_t j = i + 1;
+    while (j < samples.size() && samples[j].leaf == samples[i].leaf &&
+           std::equal(std::begin(samples[j].own), std::end(samples[j].own), std::begin(samples[i].own)))
+      j++;
+    std::string stack = DescribeAnywhere(samples[i].leaf);
+    for (uintptr_t frame : samples[i].own)
+      if (frame != 0)
+        stack += " <- " + DescribeAnywhere(frame);
+    REXLOG_INFO("profile history {:+.1f}..{:+.1f} ms ({} samples): {}", (samples[i].nanoseconds - center) / 1e6,
+                (samples[j - 1].nanoseconds - center) / 1e6, j - i, stack);
+    i = j;
+  }
+}
 
 // Called on the UI thread at startup, so the UI thread can be sampled too.
 void ProfilerNoteUiThread() { g_uiThreadId = GetCurrentThreadId(); }

@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <mutex>
+#include <thread>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -29,6 +30,8 @@ REXCVAR_DEFINE_BOOL(pacman_frame_stats, true, "Pac-Man",
 uint64_t GpuWaitNanoseconds();
 // Starts the sampling profiler if --pacman_profile is set (profiler.cpp).
 void ProfilerMaybeStart();
+// Main-thread samples in a time window, logged (profiler.cpp).
+void ProfilerDumpHistory(int64_t center, int64_t from, int64_t to);
 // Installs the crash logger (diagnostics.cpp).
 void DiagnosticsInstall();
 
@@ -50,6 +53,145 @@ std::mutex g_vblankMutex;
 VblankStats g_vblank;
 
 }  // namespace
+
+// Frame trace (--pacman_frame_trace): timestamps of the events that pace a frame, kept in a ring buffer and
+// dumped around slow frames (VdSwap interval over 20 ms) to see which wait made the frame late.
+REXCVAR_DEFINE_BOOL(pacman_frame_trace, false, "Pac-Man",
+                    "Log a timeline of vblanks, swaps and GPU waits around slow frames (diagnostics)");
+namespace {
+enum TraceKind : uint8_t { TraceVblank, TraceSwap, TraceCommandIrq, TraceFenceBegin, TraceFenceEnd,
+                           TraceBufferBegin, TraceBufferEnd, TraceFenceCall, TraceGpuWait, TraceJobsStart,
+                           TraceJobsDone };
+constexpr char TraceLetters[] = {'V', 'S', 'C', '(', ')', '[', ']', 'F', '<', 'D', 'd'};
+struct TraceEvent {
+  int64_t nanoseconds;
+  TraceKind kind;
+  uint8_t site;          // TraceFenceCall: which call of the fence wait (FenceCallSites)
+  uint32_t callers[3];  // TraceGpuWait: guest return addresses, innermost first
+};
+constexpr size_t TraceSize = 4096;
+TraceEvent g_trace[TraceSize];
+std::atomic<uint64_t> g_traceNext{0};
+
+int64_t NowNanoseconds() {
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
+void Trace(TraceKind kind, uint8_t site = 0, const uint32_t* callers = nullptr) {
+  if (!REXCVAR_GET(pacman_frame_trace))
+    return;
+  const uint64_t index = g_traceNext.fetch_add(1, std::memory_order_relaxed);
+  TraceEvent event{NowNanoseconds(), kind, site, {}};
+  if (callers != nullptr)
+    std::copy(callers, callers + 3, event.callers);
+  g_trace[index % TraceSize] = event;
+}
+
+// Guest return addresses from the stack's back chain (each frame's saved LR is at back chain - 8).
+void GuestCallers(uint32_t sp, uint32_t (&callers)[3]) {
+  rex::Runtime* runtime = rex::Runtime::instance();
+  if (runtime == nullptr)
+    return;
+  const uint8_t* base = runtime->virtual_membase();
+  auto read32 = [base](uint32_t address) { return _byteswap_ulong(*reinterpret_cast<const uint32_t*>(base + address)); };
+  for (int depth = 0; depth < 3 && sp != 0 && sp < 0xF0000000; depth++) {
+    const uint32_t back = read32(sp);
+    if (back <= sp)
+      break;
+    callers[depth] = read32(back - 8);
+    sp = back;
+  }
+}
+
+// Logs the events from 70 ms before to 40 ms after the slow frame's swap at `center`, as ms relative to it:
+// V vblank, S swap (VdSwap), C command-buffer interrupt, ( ) fence wait, [ ] command-buffer-full wait,
+// Fn call of the fence-wait function from call site n (FenceCallSites; it returns at once if already passed),
+// <[a,b,c] start of a D3D GPU wait (sub_82065018 polls) with its guest callers,
+// D d the game's job dispatcher (sub_8213ECA8) starting jobs on the 3 workers / all of them done.
+void DumpTrace(int64_t center, double frameMs) {
+  std::vector<TraceEvent> events;
+  const uint64_t end = g_traceNext.load(std::memory_order_relaxed);
+  for (uint64_t i = end > TraceSize ? end - TraceSize : 0; i < end; i++) {
+    const TraceEvent& e = g_trace[i % TraceSize];
+    if (e.nanoseconds >= center - 70'000'000 && e.nanoseconds <= center + 40'000'000)
+      events.push_back(e);
+  }
+  std::sort(events.begin(), events.end(), [](const auto& a, const auto& b) { return a.nanoseconds < b.nanoseconds; });
+  std::string text;
+  char item[64];
+  for (const TraceEvent& e : events) {
+    if (e.kind == TraceGpuWait)
+      std::snprintf(item, sizeof(item), " <%+.1f[%X,%X,%X]", (e.nanoseconds - center) / 1e6, e.callers[0],
+                    e.callers[1], e.callers[2]);
+    else if (e.kind == TraceFenceCall)
+      std::snprintf(item, sizeof(item), " F%u%+.1f", e.site, (e.nanoseconds - center) / 1e6);
+    else
+      std::snprintf(item, sizeof(item), " %c%+.1f", TraceLetters[e.kind], (e.nanoseconds - center) / 1e6);
+    text += item;
+  }
+  REXLOG_INFO("frame trace (slow frame {:.1f} ms, swap at 0):{}", frameMs, text);
+  ProfilerDumpHistory(center, center - 40'000'000, center + 2'000'000);  // with --pacman_profile
+}
+}  // namespace
+
+// Each poll of a D3D GPU wait (spin_hooks.cpp GpuWaitPollHook; r1 = sub_82065018's stack pointer): marks the start
+// of a wait - after a pause between polls, or when the calling code changes (waits can follow back to back).
+void FrameTraceGpuWaitPoll(uint32_t r1, bool newWait) {
+  if (!REXCVAR_GET(pacman_frame_trace))
+    return;
+  thread_local uint32_t lastCallers[3] = {};
+  uint32_t callers[3] = {};
+  GuestCallers(r1, callers);
+  if (newWait || !std::equal(callers, callers + 3, lastCallers))
+    Trace(TraceGpuWait, 0, callers);
+  std::copy(callers, callers + 3, lastCallers);
+}
+
+// The game's job dispatcher sub_8213ECA8: jobs handed out (it then spins until all 3 workers are done) / done.
+void JobsStartHook() { Trace(TraceJobsStart); }
+void JobsDoneHook() { Trace(TraceJobsDone); }
+
+// Calls of the fence-wait function sub_8206F728 (the bl instructions; see pacman_config.toml), for the trace.
+#define PACMAN_FENCE_CALL_HOOK(index, site) \
+  void FenceCallHook_##site() { Trace(TraceFenceCall, index); }
+PACMAN_FENCE_CALL_HOOK(0, 82067F30)
+PACMAN_FENCE_CALL_HOOK(1, 8206FBBC)
+PACMAN_FENCE_CALL_HOOK(2, 8206FE14)
+PACMAN_FENCE_CALL_HOOK(3, 82070010)
+// Site 4 is in D3D's resource destruction (sub_8207D5D8, from Release sub_8207DB78): the game freed a
+// resource the GPU may still be using. Also logs who released it, by walking the guest stack's back chain (each
+// frame's saved LR is at back chain - 8), and the resource type (common word & 0xF).
+void FenceCallHook_8207D690(PPCRegister& r1, PPCRegister& r31) {
+  Trace(TraceFenceCall, 4);
+  static int logged = 0;
+  if (!REXCVAR_GET(pacman_frame_trace) || logged >= 40)
+    return;
+  logged++;
+  rex::Runtime* runtime = rex::Runtime::instance();
+  if (runtime == nullptr)
+    return;
+  const uint8_t* base = runtime->virtual_membase();
+  auto read32 = [base](uint32_t address) { return _byteswap_ulong(*reinterpret_cast<const uint32_t*>(base + address)); };
+  std::string chain;
+  uint32_t sp = r1.u32;
+  for (int depth = 0; depth < 5 && sp != 0 && sp < 0xF0000000; depth++) {
+    const uint32_t back = read32(sp);
+    if (back <= sp)
+      break;
+    char item[16];
+    std::snprintf(item, sizeof(item), " %08X", read32(back - 8));
+    chain += item;
+    sp = back;
+  }
+  REXLOG_INFO("frame trace: resource {:08X} (type {}) destroyed; return addresses:{}", r31.u32,
+              read32(r31.u32) & 0xF, chain);
+}
+PACMAN_FENCE_CALL_HOOK(5, 8207D6DC)
+PACMAN_FENCE_CALL_HOOK(6, 8207D70C)
+PACMAN_FENCE_CALL_HOOK(7, 8207D738)
+PACMAN_FENCE_CALL_HOOK(8, 8207D79C)
+PACMAN_FENCE_CALL_HOOK(9, 8207D84C)
 
 // Time spent in D3D's two stalling waits (hooked on their slow paths), read and reset by each report.
 namespace {
@@ -78,10 +220,22 @@ std::string TakeWaitSummary() {
 }
 }  // namespace
 
-void BufferWaitBeginHook() { t_bufferWaitStart = std::chrono::steady_clock::now(); }
-void BufferWaitEndHook() { EndWait(g_bufferWait, t_bufferWaitStart); }
-void FenceWaitBeginHook() { t_fenceWaitStart = std::chrono::steady_clock::now(); }
-void FenceWaitEndHook() { EndWait(g_fenceWait, t_fenceWaitStart); }
+void BufferWaitBeginHook() {
+  t_bufferWaitStart = std::chrono::steady_clock::now();
+  Trace(TraceBufferBegin);
+}
+void BufferWaitEndHook() {
+  EndWait(g_bufferWait, t_bufferWaitStart);
+  Trace(TraceBufferEnd);
+}
+void FenceWaitBeginHook() {
+  t_fenceWaitStart = std::chrono::steady_clock::now();
+  Trace(TraceFenceBegin);
+}
+void FenceWaitEndHook() {
+  EndWait(g_fenceWait, t_fenceWaitStart);
+  Trace(TraceFenceEnd);
+}
 
 // Draw calls (sub_820CB840), counted per frame by FrameHook.
 namespace {
@@ -97,6 +251,8 @@ void NoteSwap(std::chrono::steady_clock::time_point now) {
 
 // Graphics interrupt callback entry: r3 = source, 0 = vblank, 1 = command buffer (PM4_INTERRUPT).
 void InterruptHook(PPCRegister& r3) {
+  if (r3.u32 <= 1)
+    Trace(r3.u32 == 0 ? TraceVblank : TraceCommandIrq);
   const auto now = std::chrono::steady_clock::now();
   std::lock_guard lock(g_vblankMutex);
   if (r3.u32 == 1) {
@@ -289,8 +445,24 @@ void FrameHook() {
   }
 
   NoteSwap(now);
+  Trace(TraceSwap);
   const double frameSeconds = std::chrono::duration<double>(now - last).count();
   last = now;
+
+  // Frame trace: dump around a slow frame once 40 ms have passed after it (at most 15 per run).
+  static int64_t pendingDump = 0;
+  static double pendingMs = 0;
+  static int dumps = 0;
+  const int64_t nowNs = NowNanoseconds();
+  if (pendingDump != 0 && nowNs - pendingDump > 40'000'000) {
+    DumpTrace(pendingDump, pendingMs);
+    pendingDump = 0;
+  }
+  if (REXCVAR_GET(pacman_frame_trace) && frameSeconds > SlowFrameSeconds && pendingDump == 0 && dumps < 15) {
+    pendingDump = nowNs;
+    pendingMs = frameSeconds * 1000;
+    dumps++;
+  }
   window.frames++;
   if (frameSeconds > SlowFrameSeconds)
     window.slowFrames++;
@@ -309,14 +481,17 @@ void FrameHook() {
     const uint64_t gpuWait = GpuWaitNanoseconds();
     const double gpuWaitShare = (gpuWait - gpuWaitAtStart) / 1e9 / elapsed;
     gpuWaitAtStart = gpuWait;
-    REXLOG_INFO("frames: {} in {:.1f} s ({:.1f} fps), {} over {:.0f} ms, {} under {:.0f} ms, worst {:.1f} ms; game behind by "
-                "{:.0f} ms this window, {:.1f} s total; draws {:.0f} per frame (max {}); {}; {}; "
-                "main thread waiting on GPU {:.0f}%; {}; busiest: {}",
-                window.frames, elapsed, window.frames / elapsed, window.slowFrames, SlowFrameSeconds * 1000,
-                window.fastFrames, FastFrameSeconds * 1000,
-                window.worstSeconds * 1000, lost * 1000, totalLostSeconds,
-                window.frames ? double(window.draws) / window.frames : 0.0, window.maxDraws, TakeVblankSummary(),
-                TakeWaitSummary(), gpuWaitShare * 100, TakeFaultSummary(window.frames), BusiestThreads(elapsed));
+    // The report is put together and logged on a short-lived thread: listing the threads and their CPU times
+    // takes long enough to make this frame miss its vblank (it caused one bump every 10 s, seen 2026-10-21).
+    std::thread([window = window, elapsed, lost, total = totalLostSeconds, gpuWaitShare]() {
+      REXLOG_INFO("frames: {} in {:.1f} s ({:.1f} fps), {} over {:.0f} ms, {} under {:.0f} ms, worst {:.1f} ms; game "
+                  "behind by {:.0f} ms this window, {:.1f} s total; draws {:.0f} per frame (max {}); {}; {}; "
+                  "main thread waiting on GPU {:.0f}%; {}; busiest: {}",
+                  window.frames, elapsed, window.frames / elapsed, window.slowFrames, SlowFrameSeconds * 1000,
+                  window.fastFrames, FastFrameSeconds * 1000, window.worstSeconds * 1000, lost * 1000, total,
+                  window.frames ? double(window.draws) / window.frames : 0.0, window.maxDraws, TakeVblankSummary(),
+                  TakeWaitSummary(), gpuWaitShare * 100, TakeFaultSummary(window.frames), BusiestThreads(elapsed));
+    }).detach();
     window = Window{now};
   }
 }

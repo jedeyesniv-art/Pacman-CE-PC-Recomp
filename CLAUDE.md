@@ -208,6 +208,20 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   frames/10 s, noise), kept since the Deck A/B showed faster handshake reaction helps slightly and it costs no
   CPU. Real cure would be frame pacing in the presenter (release frames on a steady 60 Hz beat, +1 frame of
   latency) - deferred by choice: risky (the day-1 lag storms came from presentation timing).
+- Frame pacing, second look (2026-10-21, PC): --pacman_frame_trace dumps a timeline around each slow frame
+  (V vblank, S VdSwap, C cmd-buffer irq, ( ) fence waits, Fn fence-wait call site n, < GPU-wait poll start
+  with guest callers, D d job dispatch) and, with --pacman_profile, the main thread's sampled stacks in the gap
+  (ProfilerDumpHistory; symbolize with llvm-symbolizer). Normal frame: V, ~1 ms later C and ) F0 S F1 (.
+  Findings: (1) OUR frame-stats report (BusiestThreads: toolhelp + per-thread times) ran on the main thread
+  in FrameHook every 10 s = one slow frame per 10 s; now logged from a detached thread -> calm stretches have
+  0 slow frames, worst ~18 ms. (2) The game frees textures its just-submitted frame still uses (object
+  destructor sub_82126868 releases 3); D3D's destroy (sub_8207D5D8, fence-wait call site 4) then waits for
+  the GPU, parked until the next vblank. src\texture_release.cpp (pacman_defer_resource_destroy, default on)
+  hooks Release at 0x8207DBD8 (count reached 0), queues the resource and destroys it >= 100 ms later on the
+  same thread via the game's own sub_8207D5D8 (called from the hook with the live PPCContext, saved/restored).
+  Worst hitches went from ~55 ms (3 vblanks) to ~39 ms. (3) What remains: frames where the game itself runs
+  ~20 ms of its own code (heap alloc sub_820D2850.., memcpy sub_820B9150, text sub_8212C528, physical allocs),
+  in bursts. Not an emulator wait. Possible next step: native replacements for hot CRT routines (uncertain).
 - The "Pac-Man build <date> <time>" log line is main.cpp's compile time (__DATE__/__TIME__), so it only changes
   when main.cpp or pacman_app.h recompile - not a reliable build ID.
 - Re-applying the patch to a fresh SDK clone: git -C tools\rexglue-sdk-src am ..\..\patches\rexglue-sdk\*.patch

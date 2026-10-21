@@ -108,14 +108,19 @@ uint64_t GpuWaitNanoseconds() {
 }
 
 // D3D's GPU wait: called once per poll while the CPU waits for the GPU to catch up.
-void GpuWaitPollHook() {
+// Frame trace: each poll of a GPU wait (frame_stats.cpp).
+void FrameTraceGpuWaitPoll(uint32_t r1, bool newWait);
+
+void GpuWaitPollHook(PPCRegister& r1) {
   thread_local uint32_t idlePolls = 0;
   thread_local auto lastPoll = std::chrono::steady_clock::time_point{};
   const auto now = std::chrono::steady_clock::now();
   const auto sinceLast = now - lastPoll;
-  if (sinceLast > NewWaitGap)
-    idlePolls = 0;  // a new wait
-  else
+  const bool newWait = sinceLast > NewWaitGap;
+  if (newWait)
+    idlePolls = 0;
+  FrameTraceGpuWaitPoll(r1.u32, newWait);
+  if (!newWait)
     g_gpuWaitNanoseconds.fetch_add(std::chrono::duration_cast<std::chrono::nanoseconds>(sinceLast).count(),
                                    std::memory_order_relaxed);
   lastPoll = now;  // gaps run start to start, so they include any sleep below

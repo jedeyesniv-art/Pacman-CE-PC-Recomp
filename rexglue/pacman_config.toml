@@ -41,6 +41,7 @@ registers = ["r11"]
 [[midasm_hook]]
 address = 0x8206506C
 name = "GpuWaitPollHook"
+registers = ["r1"]
 
 # Per-frame CPU/GPU handshake (src/spin_hooks.cpp). D3D's swap code (sub_82067570) emits two PM4
 # WAIT_REG_MEM packets that wait for a memory word set by the CPU side, with wait = 0x100. ReXGlue's command
@@ -120,6 +121,69 @@ name = "ProjectionHook"
 [[midasm_hook]]
 address = 0x8213B2AC
 name = "SpriteMatrixHook"
+
+# Deferred resource destruction (src/texture_release.cpp): in D3D's Release (sub_8207DB78), where the count has
+# reached 0 and r31 is about to be destroyed (sub_8207D5D8, which first waits for the GPU - parked until the next
+# vblank if the resource was drawn in the frame just submitted: a one-frame stall). The hook queues the resource
+# and skips to the epilogue (the skipped li r3,0 is done by the hook).
+[[midasm_hook]]
+address = 0x8207DBD8
+name = "DeferDestroyHook"
+registers = ["r3", "r31"]
+jump_address_on_true = 0x8207DBE4
+
+# Frame trace: the game's job dispatcher sub_8213ECA8 after handing out jobs (it then spins until the 3 workers'
+# control words leave state 1) and after the spin.
+[[midasm_hook]]
+address = 0x8213ECC4
+name = "JobsStartHook"
+
+[[midasm_hook]]
+address = 0x8213ECF4
+name = "JobsDoneHook"
+
+# Frame trace (src/frame_stats.cpp, --pacman_frame_trace): each call of the fence wait sub_8206F728, so the trace
+# shows which caller waits. Hooked on the bl instructions.
+[[midasm_hook]]
+address = 0x82067F30
+name = "FenceCallHook_82067F30"
+
+[[midasm_hook]]
+address = 0x8206FBBC
+name = "FenceCallHook_8206FBBC"
+
+[[midasm_hook]]
+address = 0x8206FE14
+name = "FenceCallHook_8206FE14"
+
+[[midasm_hook]]
+address = 0x82070010
+name = "FenceCallHook_82070010"
+
+[[midasm_hook]]
+address = 0x8207D690
+name = "FenceCallHook_8207D690"
+registers = ["r1", "r31"]
+
+[[midasm_hook]]
+address = 0x8207D6DC
+name = "FenceCallHook_8207D6DC"
+
+[[midasm_hook]]
+address = 0x8207D70C
+name = "FenceCallHook_8207D70C"
+
+[[midasm_hook]]
+address = 0x8207D738
+name = "FenceCallHook_8207D738"
+
+[[midasm_hook]]
+address = 0x8207D79C
+name = "FenceCallHook_8207D79C"
+
+[[midasm_hook]]
+address = 0x8207D84C
+name = "FenceCallHook_8207D84C"
 
 # Diagnostics (src/diagnostics.cpp): every call the game makes to a function that stops it or its thread is
 # logged with its arguments (the SDK logs these at debug level at most). Hooked on the bl instructions.
