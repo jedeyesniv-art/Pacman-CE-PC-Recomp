@@ -19,6 +19,7 @@ set(PACMAN_SOURCES
     src/profiler.cpp
     src/diagnostics.cpp
     src/texture_release.cpp
+    src/autodemo.cpp
 )
 if(WIN32)
     # Exe icon: pacman.ico, an original design drawn by ../Tools/make_icon.py (no game artwork).

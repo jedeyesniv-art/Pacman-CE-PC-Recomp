@@ -6,6 +6,9 @@
 setjmp_address = 0x8215BDB0
 longjmp_address = 0x8215BC90
 
+# Native C runtime routines ([rexcrt] memcpy = 0x820B9150 / memset = 0x820B86C0, identified 2026-10-21) were
+# tried and measured: no difference in the gameplay demo (A/B, --pacman_autodemo_seconds), so they stay recompiled.
+
 # Functions containing jump tables that analysis ended too early.
 [functions]
 0x82196C68 = { size = 0x188 } # switch at 82196C84 - leaf fn, checked
@@ -141,6 +144,20 @@ name = "JobsStartHook"
 [[midasm_hook]]
 address = 0x8213ECF4
 name = "JobsDoneHook"
+
+# Auto-demo for measurements (src/autodemo.cpp, --pacman_autodemo_seconds): after the game's controller poll
+# (bl XInputGetState sub_820C9810; r28 = user, state at r1+0x50, r3 = result).
+[[midasm_hook]]
+address = 0x820A5D2C
+name = "AutoDemoInputHook"
+registers = ["r1", "r3", "r28"]
+
+# ... and the menus' keystroke reads: return of XamInputGetKeystrokeEx in the wrapper sub_820C9820 (r3 = result,
+# r5 = the game's XINPUT_KEYSTROKE).
+[[midasm_hook]]
+address = 0x820C984C
+name = "AutoDemoKeystrokeHook"
+registers = ["r3", "r5"]
 
 # Frame trace (src/frame_stats.cpp, --pacman_frame_trace): each call of the fence wait sub_8206F728, so the trace
 # shows which caller waits. Hooked on the bl instructions.

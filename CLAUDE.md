@@ -254,7 +254,16 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   call site 1, sub_8206FA78) waits for the previous frame's flip = the next vblank. Each frame starts a new
   segment after its swap. pacman_command_segment_kb (spin_hooks.cpp CommandBufferSizeHook) now defaults to 512:
   PC attract slow frames 35-36 -> 5-6 per 100 s, steady windows clean; vblank/GPU-done/swap timeline unchanged.
-  Not yet done: native CRT routines (memcpy/heap), presentation buffer (last resort).
+  Measuring: the game boots into a start menu; --pacman_autodemo_seconds=10 (src\autodemo.cpp) presses A that
+  long after launch to reach the gameplay demo (injected both into the polled state after XInputGetState,
+  0x820A5D2C, and as a keystroke after XamInputGetKeystrokeEx in sub_820C9820, 0x820C984C - the menus read
+  keystrokes). Before 2026-10-21 evening, "attract demo" measurements were mostly the start menu. Alternate
+  A/B runs of two builds side by side for comparisons.
+  Native memcpy/memset ([rexcrt], sub_820B9150 / sub_820B86C0; own exact-on-overlap memcpy wrapper): A/B in the
+  gameplay demo showed no difference, removed. The heap (RtlAllocateHeap-like sub_820D2850..) was a similar
+  share of slow frames and riskier, not attempted. Deck's remaining near-misses: 5-14 ms of game code per frame
+  on its CPU (PC ~1 ms) - hardware, not emulation.
+  Not yet done: presentation buffer (smooths display only, not the music drift).
 - The "Pac-Man build <date> <time>" log line is main.cpp's compile time (__DATE__/__TIME__), so it only changes
   when main.cpp or pacman_app.h recompile - not a reliable build ID.
 - Re-applying the patch to a fresh SDK clone: git -C tools\rexglue-sdk-src am ..\..\patches\rexglue-sdk\*.patch
