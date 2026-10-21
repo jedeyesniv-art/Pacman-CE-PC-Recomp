@@ -121,6 +121,104 @@ name = "ProjectionHook"
 address = 0x8213B2AC
 name = "SpriteMatrixHook"
 
+# Diagnostics (src/diagnostics.cpp): every call the game makes to a function that stops it or its thread is
+# logged with its arguments (the SDK logs these at debug level at most). Hooked on the bl instructions.
+[[midasm_hook]]
+address = 0x82062B7C
+name = "StopHook_82062B7C"
+registers = ["r3", "r4", "r5", "r6", "r7"]
+# KeBugCheckEx
+
+[[midasm_hook]]
+address = 0x820638FC
+name = "StopHook_820638FC"
+registers = ["r3", "r4", "r5", "r6", "r7"]
+# KeBugCheckEx
+
+[[midasm_hook]]
+address = 0x820641E4
+name = "StopHook_820641E4"
+registers = ["r3", "r4", "r5", "r6", "r7"]
+# KeBugCheckEx
+
+[[midasm_hook]]
+address = 0x820644D4
+name = "StopHook_820644D4"
+registers = ["r3", "r4", "r5", "r6", "r7"]
+# KeBugCheckEx
+
+[[midasm_hook]]
+address = 0x820B8AB4
+name = "StopHook_820B8AB4"
+registers = ["r3", "r4", "r5", "r6", "r7"]
+# KeBugCheck
+
+[[midasm_hook]]
+address = 0x820B8B5C
+name = "StopHook_820B8B5C"
+registers = ["r3", "r4", "r5", "r6", "r7"]
+# KeBugCheck
+
+[[midasm_hook]]
+address = 0x820BC830
+name = "StopHook_820BC830"
+registers = ["r3", "r4", "r5", "r6", "r7"]
+# KeBugCheck
+
+[[midasm_hook]]
+address = 0x820BC998
+name = "StopHook_820BC998"
+registers = ["r3", "r4", "r5", "r6", "r7"]
+# KeBugCheck
+
+[[midasm_hook]]
+address = 0x8215C7AC
+name = "StopHook_8215C7AC"
+registers = ["r3", "r4", "r5", "r6", "r7"]
+# KeBugCheck
+
+[[midasm_hook]]
+address = 0x821BB218
+name = "StopHook_821BB218"
+registers = ["r3", "r4", "r5", "r6", "r7"]
+# KeBugCheck
+
+[[midasm_hook]]
+address = 0x82061400
+name = "StopHook_82061400"
+registers = ["r3", "r4", "r5", "r6", "r7"]
+# XamLoaderTerminateTitle
+
+[[midasm_hook]]
+address = 0x82061574
+name = "StopHook_82061574"
+registers = ["r3", "r4", "r5", "r6", "r7"]
+# XamLoaderTerminateTitle
+
+[[midasm_hook]]
+address = 0x820CAD08
+name = "StopHook_820CAD08"
+registers = ["r3", "r4", "r5", "r6", "r7"]
+# ExTerminateThread
+
+[[midasm_hook]]
+address = 0x820640E4
+name = "StopHook_820640E4"
+registers = ["r3", "r4", "r5", "r6", "r7"]
+# RtlRaiseException
+
+[[midasm_hook]]
+address = 0x82064C4C
+name = "StopHook_82064C4C"
+registers = ["r3", "r4", "r5", "r6", "r7"]
+# RtlRaiseException
+
+[[midasm_hook]]
+address = 0x820CA48C
+name = "StopHook_820CA48C"
+registers = ["r3", "r4", "r5", "r6", "r7"]
+# RtlRaiseException
+
 # Padding words to skip rather than treat as code.
 [[invalid_instructions]]
 data = 0x00000000

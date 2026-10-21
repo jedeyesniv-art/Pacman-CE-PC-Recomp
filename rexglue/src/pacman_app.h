@@ -7,6 +7,7 @@
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
 #include <rex/logging.h>
+#include <rex/logging/api.h>
 #include <rex/rex_app.h>
 #include <rex/runtime.h>
 #include <rex/system/gpu_plugin.h>
@@ -285,6 +286,20 @@ class PacmanApp : public rex::ReXApp {
     window()->SetCursorVisibility(rex::ui::Window::CursorVisibility::kAutoHidden);
   }
 
+  // How the game ended, for unexplained exits: "Execution complete" alone doesn't tell a normal quit from the
+  // game stopping itself (see diagnostics.cpp).
+  bool OnWindowCloseRequested() override {
+    close_requested_ = true;
+    REXLOG_INFO("window close requested");
+    return true;
+  }
+  void OnGuestThreadExit(rex::system::XThread*) override {
+    REXLOG_WARN("game main thread ended ({})",
+                close_requested_ ? "after a window close request" : "no window close request: the game stopped itself");
+    rex::FlushLogging();
+  }
+
+  bool close_requested_ = false;
   std::chrono::steady_clock::time_point last_fullscreen_toggle_{};
 
   // void OnLoadXexImage(std::string& xex_image) override {}

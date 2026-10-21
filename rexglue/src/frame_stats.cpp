@@ -29,6 +29,8 @@ REXCVAR_DEFINE_BOOL(pacman_frame_stats, true, "Pac-Man",
 uint64_t GpuWaitNanoseconds();
 // Starts the sampling profiler if --pacman_profile is set (profiler.cpp).
 void ProfilerMaybeStart();
+// Installs the crash logger (diagnostics.cpp).
+void DiagnosticsInstall();
 
 namespace {
 
@@ -262,6 +264,7 @@ struct Window {
 
 void FrameHook() {
   ProfilerMaybeStart();
+  DiagnosticsInstall();
   if (!REXCVAR_GET(pacman_frame_stats))
     return;
 
