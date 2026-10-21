@@ -16,6 +16,7 @@ set(PACMAN_SOURCES
     src/spin_hooks.cpp
     src/frame_stats.cpp
     src/playfield.cpp
+    src/profiler.cpp
 )
 if(WIN32)
     # Exe icon: pacman.ico, an original design drawn by ../Tools/make_icon.py (no game artwork).

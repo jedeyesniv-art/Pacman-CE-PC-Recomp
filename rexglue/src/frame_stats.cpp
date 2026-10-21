@@ -27,6 +27,8 @@ REXCVAR_DEFINE_BOOL(pacman_frame_stats, true, "Pac-Man",
 
 // Total time spent in D3D's GPU wait (spin_hooks.cpp).
 uint64_t GpuWaitNanoseconds();
+// Starts the sampling profiler if --pacman_profile is set (profiler.cpp).
+void ProfilerMaybeStart();
 
 namespace {
 
@@ -259,6 +261,7 @@ struct Window {
 }  // namespace
 
 void FrameHook() {
+  ProfilerMaybeStart();
   if (!REXCVAR_GET(pacman_frame_stats))
     return;
 

@@ -227,6 +227,14 @@ timer. Menu: 26% -> 2% of all cores; gameplay ~35% -> ~7%, with no change in fee
 (video_mode_refresh_rate), so game speed is correct.
 
 ## Profiling
+- Built-in sampler (src\profiler.cpp, --pacman_profile=true, off by default; works under Proton): every 2 ms
+  suspends Main XThread, GPU Commands and the UI thread, unwinds with RtlVirtualUnwind over .pdata copied
+  beforehand (no locks while a thread is suspended), logs every 10 s per thread: leaf-module shares (ntdll =
+  waiting in a syscall) and the top spots as "leaf module | first own frame <- second own frame"
+  (module+0xRVA in pacman.exe / rexruntime.dll / rexgpu-xenos.dll). Symbolize offline with llvm-symbolizer
+  --obj=<binary> 0xRVA+ImageBase (needs the PDBs of exactly those binaries: the Vulkan build is made with
+  -gline-tables-only -gcodeview and -Wl,-debug for this). Windows baseline in attract: main thread 87% in
+  ntdll (D3D GPU wait sleep), GPU Commands 75% in ntdll (waiting for work).
 - Per-thread CPU: GetThreadTimes + GetThreadDescription over a sample window (guest threads are named
   "XThreadNNNN (handle)", the main one "Main XThread"). Start the exe, sample, then CloseMainWindow().
 - Stack sampling: an external sampler that suspends guest threads and walks stacks with DbgHelp, using

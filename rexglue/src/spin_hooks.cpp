@@ -28,6 +28,8 @@ REXCVAR_DEFINE_BOOL(pacman_fast_gpu_handshake, false, "Pac-Man",
                     "Make the GPU poll (not sleep 1 ms) in D3D's per-frame CPU/GPU handshake waits");
 REXCVAR_DEFINE_UINT32(pacman_command_buffer_mb, 8, "Pac-Man",
                       "D3D command buffer size in MB (the game's default is 2; 2 restores it)");
+REXCVAR_DEFINE_UINT32(pacman_backoff_sleep_us, 250, "Pac-Man",
+                      "Length of each sleep step in the spin-wait backoff, in microseconds");
 
 namespace {
 
@@ -35,12 +37,10 @@ namespace {
 constexpr uint32_t WorkerSpinPolls = 2000;
 // GPU wait polls already include the guest's own delay loop, so fewer of them before sleeping.
 constexpr uint32_t GpuWaitSpinPolls = 200;
-// Length of each sleep once spinning is over.
-constexpr int64_t SleepMicroseconds = 250;
 // A GPU wait poll after this long a gap starts a new wait (D3D waits about once per frame).
 constexpr auto NewWaitGap = std::chrono::milliseconds(2);
 
-// Sleeps for about SleepMicroseconds. Sleep(1) would round up to a whole millisecond or more, so this uses
+// Sleeps for about pacman_backoff_sleep_us. Sleep(1) would round up to a whole millisecond or more, so this uses
 // a high-resolution waitable timer (one per thread), falling back to Sleep(1) if it isn't available.
 void ShortSleep() {
   thread_local HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
@@ -50,7 +50,7 @@ void ShortSleep() {
     return;
   }
   LARGE_INTEGER due;
-  due.QuadPart = -SleepMicroseconds * 10;  // relative, 100 ns units
+  due.QuadPart = -int64_t(REXCVAR_GET(pacman_backoff_sleep_us)) * 10;  // relative, 100 ns units
   if (SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE))
     WaitForSingleObject(timer, INFINITE);
 }

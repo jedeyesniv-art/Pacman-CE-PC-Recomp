@@ -32,6 +32,8 @@ REXCVAR_DECLARE(uint32_t, license_mask);
 REXCVAR_DECLARE(bool, host_present_from_non_ui_thread);
 // Keep the game's 16:9 image unstretched in any window shape (pillar/letterbox bars instead of stretching).
 REXCVAR_DECLARE(bool, present_letterbox);
+// Lets the sampling profiler (profiler.cpp, --pacman_profile) find the UI thread.
+void ProfilerNoteUiThread();
 // Graphics API of the GPU plugin: any (D3D12 if available; Vulkan under Wine/Proton), d3d12 or vulkan
 // (see OnPreSetup).
 REXCVAR_DECLARE(std::string, pacman_gpu_backend);
@@ -125,6 +127,8 @@ class PacmanApp : public rex::ReXApp {
   // the command line and config file are read, so a non-zero --license_mask still wins. (As with the GPU
   // default, an explicit 0 can't be told apart from "not set", so trial mode can't be forced this way.)
   void OnPostInitLogging() override {
+    ProfilerNoteUiThread();
+
     // Present like Xenia does: from the guest output thread, once per guest frame. When the presenter paints on
     // the UI thread instead (at the display refresh, 120 Hz here), the game's swap ends up waiting about one
     // host refresh per frame for that painting's GPU work, and heavy frames miss their 60 Hz vblank.
