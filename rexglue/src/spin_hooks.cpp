@@ -67,7 +67,15 @@ void IdlePoll(uint32_t& idlePolls, uint32_t spinPolls) {
 }  // namespace
 
 // Job workers: r11 is the worker's control word; 1 means a job has been handed out.
+// Lets the sampling profiler find the job workers (profiler.cpp).
+void ProfilerNoteWorkerThread();
+
 void WorkerPollHook(PPCRegister& r11) {
+  thread_local bool registered = false;
+  if (!registered) {
+    registered = true;
+    ProfilerNoteWorkerThread();
+  }
   if (!REXCVAR_GET(pacman_worker_backoff))
     return;
   thread_local uint32_t idlePolls = 0;

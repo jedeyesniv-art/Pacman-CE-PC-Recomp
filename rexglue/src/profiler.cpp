@@ -149,9 +149,22 @@ struct Sample {
 // Recent main-thread samples with time and deeper stacks, for the frame trace (ProfilerDumpHistory).
 struct HistorySample {
   int64_t nanoseconds = 0;
+  uint8_t thread = 0;  // 0 = main thread, 1.. = job worker (registration order)
   uintptr_t leaf = 0;
   uintptr_t own[6] = {};
 };
+
+// The game's job workers (registered by spin_hooks.cpp's WorkerPollHook on each worker thread).
+constexpr size_t MaxWorkers = 16;  // loading spawns short-lived threads that run the worker loop too
+std::atomic<DWORD> g_workerIds[MaxWorkers] = {};
+std::atomic<uint32_t> g_workerCount{0};
+
+int WorkerIndex(DWORD thread_id) {
+  for (uint32_t i = 0; i < g_workerCount.load() && i < MaxWorkers; i++)
+    if (g_workerIds[i].load() == thread_id)
+      return int(i) + 1;
+  return 0;
+}
 constexpr size_t HistorySize = 8192;
 std::mutex g_historyMutex;
 HistorySample g_history[HistorySize];
@@ -218,8 +231,11 @@ void FindTargets(std::vector<Target>& targets) {
     if (thread == nullptr)
       continue;
     std::string name = ThreadName(thread);
+    const int worker = WorkerIndex(entry.th32ThreadID);
+    if (worker != 0)
+      name = "Job worker " + std::to_string(worker) + " (" + name + ")";
     const bool wanted = name.rfind("Main XThread", 0) == 0 || name.rfind("GPU Commands", 0) == 0 ||
-                        entry.th32ThreadID == g_uiThreadId.load();
+                        entry.th32ThreadID == g_uiThreadId.load() || worker != 0;
     if (!wanted) {
       CloseHandle(thread);
       continue;
@@ -320,9 +336,12 @@ void SamplerThread() {
       }
       target.samples.push_back(sample);
 
-      if (target.name.rfind("Main XThread", 0) == 0) {
+      const bool isMain = target.name.rfind("Main XThread", 0) == 0;
+      const int worker = isMain ? 0 : WorkerIndex(target.id);
+      if (isMain || worker != 0) {
         HistorySample history;
         history.nanoseconds = SteadyNanoseconds();
+        history.thread = uint8_t(worker);
         history.leaf = frames[0];
         int deep = 0;
         for (int i = 0; i < count && deep < 6; i++) {
@@ -359,19 +378,36 @@ void ProfilerDumpHistory(int64_t center, int64_t from, int64_t to) {
         samples.push_back(sample);
     }
   }
-  for (size_t i = 0; i < samples.size();) {
-    size_t j = i + 1;
-    while (j < samples.size() && samples[j].leaf == samples[i].leaf &&
-           std::equal(std::begin(samples[j].own), std::end(samples[j].own), std::begin(samples[i].own)))
-      j++;
-    std::string stack = DescribeAnywhere(samples[i].leaf);
-    for (uintptr_t frame : samples[i].own)
-      if (frame != 0)
-        stack += " <- " + DescribeAnywhere(frame);
-    REXLOG_INFO("profile history {:+.1f}..{:+.1f} ms ({} samples): {}", (samples[i].nanoseconds - center) / 1e6,
-                (samples[j - 1].nanoseconds - center) / 1e6, j - i, stack);
-    i = j;
+  for (uint8_t thread = 0; thread <= MaxWorkers; thread++) {
+    std::vector<HistorySample> mine;
+    for (const HistorySample& sample : samples)
+      if (sample.thread == thread)
+        mine.push_back(sample);
+    const std::string label = thread == 0 ? "main" : "worker " + std::to_string(thread);
+    for (size_t i = 0; i < mine.size();) {
+      size_t j = i + 1;
+      while (j < mine.size() && mine[j].leaf == mine[i].leaf &&
+             std::equal(std::begin(mine[j].own), std::end(mine[j].own), std::begin(mine[i].own)))
+        j++;
+      std::string stack = DescribeAnywhere(mine[i].leaf);
+      for (uintptr_t frame : mine[i].own)
+        if (frame != 0)
+          stack += " <- " + DescribeAnywhere(frame);
+      REXLOG_INFO("profile history [{}] {:+.1f}..{:+.1f} ms ({} samples): {}", label,
+                  (mine[i].nanoseconds - center) / 1e6, (mine[j - 1].nanoseconds - center) / 1e6, j - i, stack);
+      i = j;
+    }
   }
+}
+
+// Called once on each job worker thread (spin_hooks.cpp), so the profiler samples the workers too.
+void ProfilerNoteWorkerThread() {
+  const DWORD id = GetCurrentThreadId();
+  if (WorkerIndex(id) != 0)
+    return;
+  const uint32_t slot = g_workerCount.fetch_add(1);
+  if (slot < MaxWorkers)
+    g_workerIds[slot] = id;
 }
 
 // Called on the UI thread at startup, so the UI thread can be sampled too.
