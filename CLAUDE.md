@@ -248,6 +248,12 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   before). Measured with the profiler over 100 s of attract (game-code samples): main thread -25%, job workers
   -50%. PGO (CMake PACMAN_PGO=generate / path; instrumented builds write the profile in OnWindowCloseRequested):
   no clear gain on top, not used.
+  Steam Deck frame trace (launch options --pacman_frame_trace=true --log_file=..., no profiler) and a recheck
+  of the last PC trace: ~90% of the remaining slow frames (Deck 75/80, PC 51/56) were ONE pattern: the frame's
+  commands outgrow a D3D command segment (64 KB) before its swap, and starting a segment mid-frame (fence-wait
+  call site 1, sub_8206FA78) waits for the previous frame's flip = the next vblank. Each frame starts a new
+  segment after its swap. pacman_command_segment_kb (spin_hooks.cpp CommandBufferSizeHook) now defaults to 512:
+  PC attract slow frames 35-36 -> 5-6 per 100 s, steady windows clean; vblank/GPU-done/swap timeline unchanged.
   Not yet done: native CRT routines (memcpy/heap), presentation buffer (last resort).
 - The "Pac-Man build <date> <time>" log line is main.cpp's compile time (__DATE__/__TIME__), so it only changes
   when main.cpp or pacman_app.h recompile - not a reliable build ID.

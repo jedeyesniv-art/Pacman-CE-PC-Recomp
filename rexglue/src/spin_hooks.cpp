@@ -28,6 +28,8 @@ REXCVAR_DEFINE_BOOL(pacman_fast_gpu_handshake, false, "Pac-Man",
                     "Make the GPU poll (not sleep 1 ms) in D3D's per-frame CPU/GPU handshake waits");
 REXCVAR_DEFINE_UINT32(pacman_command_buffer_mb, 8, "Pac-Man",
                       "D3D command buffer size in MB (the game's default is 2; 2 restores it)");
+REXCVAR_DEFINE_UINT32(pacman_command_segment_kb, 512, "Pac-Man",
+                      "D3D command buffer segment size in KB (power of two, 64-2048; the game's default is 64)");
 REXCVAR_DEFINE_UINT32(pacman_backoff_sleep_us, 250, "Pac-Man",
                       "Length of each sleep step in the spin-wait backoff, in microseconds");
 
@@ -86,17 +88,27 @@ void WorkerPollHook(PPCRegister& r11) {
 }
 
 // D3D's command buffer: the game uses the defaults (2 MB in 32 segments of 64 KB). Heavy frames overflow the
-// free space while the GPU waits for the previous frame's flip, stalling the CPU mid-frame. Enlarge it, keeping
-// the 64 KB segment size. Only applied when the game left both at their defaults.
+// free space while the GPU waits for the previous frame's flip, stalling the CPU mid-frame: enlarge it.
+// Segment size: each frame starts a new segment, and starting another one mid-frame waits until the previous
+// frame has been flipped (the next vblank), so a frame with more commands than one segment always misses its
+// vblank. Frame traces (2026-10-21) found this in ~90% of the remaining slow frames on the Steam Deck and the PC
+// (busy scenes: full dot grids, flashing ghosts, score pop-ups). Only the segment size is stored (device+0x39A8),
+// so size / segment size segments work. 512 KB (16 segments of the 8 MB): PC attract demo 35-36 -> 5-6 slow
+// frames per 100 s (the rest at startup), steady windows all clean; 128 KB still 19, 1024 KB no better; the
+// vblank -> GPU done -> swap timeline is unchanged (no added latency). Only applied when the game left both at
+// their defaults.
 void CommandBufferSizeHook(PPCRegister& size, PPCRegister& segments) {
   constexpr uint32_t DefaultSize = 0x200000;
-  constexpr uint32_t SegmentSize = 0x10000;
   const uint32_t megabytes = REXCVAR_GET(pacman_command_buffer_mb);
+  uint32_t segment_kb = REXCVAR_GET(pacman_command_segment_kb);
   if (size.u32 != DefaultSize || segments.u32 != 0 || megabytes <= 2 || megabytes > 64)
     return;
+  if (segment_kb < 64 || segment_kb > 2048 || (segment_kb & (segment_kb - 1)) != 0)
+    segment_kb = 64;
   size.u32 = megabytes * 0x100000;
-  segments.u32 = size.u32 / SegmentSize;
-  REXLOG_INFO("D3D command buffer: {} MB in {} segments (game default 2 MB)", megabytes, segments.u32);
+  segments.u32 = size.u32 / (segment_kb * 1024);
+  REXLOG_INFO("D3D command buffer: {} MB in {} segments of {} KB (game default 2 MB, 64 KB)", megabytes,
+              segments.u32, segment_kb);
 }
 
 // The wait field of D3D's per-frame handshake WAIT_REG_MEM packets. The command processor sleeps
