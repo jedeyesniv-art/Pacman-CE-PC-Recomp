@@ -264,6 +264,20 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   share of slow frames and riskier, not attempted. Deck's remaining near-misses: 5-14 ms of game code per frame
   on its CPU (PC ~1 ms) - hardware, not emulation.
   Not yet done: presentation buffer (smooths display only, not the music drift).
+
+## Game data / mods
+- data\gamedata.bin, gamedata1-9.bin, gamedata_oka.bin are Shift-JIS CSVs (Japanese label, key, values; maps as
+  61x33 grids). sub_82136D30 loads all 11 at startup into a table (index 0 = gamedata.bin, 1-9, 10 = _oka);
+  the active one hangs off the global 0x821F4C60 (+0xC +0x14: sections, +0x18 next; rows keyed at +0x30) and
+  settings are looked up by key (sub_82140160 / sub_821402a8, e.g. "dualmap" at 0x821419F4). Mode -> file in
+  menu order: Championship = gamedata1 (timemax 300), Challenge 1/2 = 2/3, Extra 1-3 = 4-6.
+- Stage lists: rows "ステージN（開始、終了グリッド）,m_i_mapXX,a,b", read by position; gamedata1 has two identical
+  22-row lists (likely left/right half, dualmap = 1) using 11 mazes (00, 01-03, 11-13, 21-23, 30), then a
+  "m_,25,37" row (the centre divider columns).
+- Random maze order (src\random_mazes.cpp, --pacman_random_mazes, off by default; random-mazes.bat in the play
+  folder): at launch reads gamedata1.bin, keeps row 1 of each stage list and shuffles the rest as whole lines
+  (same length), and serves that through SDK patch 0007 (rex::filesystem::SetFileReadFilter, called after
+  every host file read). Logs both orders. Per launch only (the game reads its data once).
 - The "Pac-Man build <date> <time>" log line is main.cpp's compile time (__DATE__/__TIME__), so it only changes
   when main.cpp or pacman_app.h recompile - not a reliable build ID.
 - Re-applying the patch to a fresh SDK clone: git -C tools\rexglue-sdk-src am ..\..\patches\rexglue-sdk\*.patch

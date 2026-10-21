@@ -1,0 +1,74 @@
+From 72e555751a91858a89103ea9b4e8b69605c12038 Mon Sep 17 00:00:00 2001
+From: John <326213404+jedeyesniv-art@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 19:05:30 +0100
+Subject: [PATCH 7/7] Filesystem: optional read filter for host files
+ (SetFileReadFilter)
+
+Called after every successful host file read with the entry, offset and bytes,
+which it may modify in place - lets an app serve modified game data (mods)
+without touching the files on disk.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ include/rex/filesystem/file.h             |  6 ++++++
+ src/filesystem/devices/host_path_file.cpp | 16 ++++++++++++++++
+ 2 files changed, 22 insertions(+)
+
+diff --git a/include/rex/filesystem/file.h b/include/rex/filesystem/file.h
+index 1f22413..b77b730 100644
+--- a/include/rex/filesystem/file.h
++++ b/include/rex/filesystem/file.h
+@@ -68,4 +68,10 @@ class File {
+   Entry* entry_ = nullptr;
+ };
+ 
++// Optional app hook (e.g. data mods): called after every successful read from a host file with the file's entry,
++// the byte offset of the read and the bytes read, which it may modify in place. One filter at a time.
++using FileReadFilter = void (*)(const Entry& entry, size_t byte_offset, std::span<uint8_t> data);
++void SetFileReadFilter(FileReadFilter filter);
++FileReadFilter GetFileReadFilter();
++
+ }  // namespace rex::filesystem
+diff --git a/src/filesystem/devices/host_path_file.cpp b/src/filesystem/devices/host_path_file.cpp
+index 4c57a18..7ea3d34 100644
+--- a/src/filesystem/devices/host_path_file.cpp
++++ b/src/filesystem/devices/host_path_file.cpp
+@@ -9,6 +9,7 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <atomic>
+ #include <rex/filesystem/devices/host_path_entry.h>
+ #include <rex/filesystem/devices/host_path_file.h>
+ 
+@@ -31,12 +32,27 @@ X_STATUS HostPathFile::ReadSync(std::span<uint8_t> buffer, size_t byte_offset,
+   }
+ 
+   if (file_handle_->Read(byte_offset, buffer.data(), buffer.size(), out_bytes_read)) {
++    if (FileReadFilter filter = GetFileReadFilter(); filter != nullptr && entry_ != nullptr) {
++      filter(*entry_, byte_offset, buffer.first(out_bytes_read ? *out_bytes_read : buffer.size()));
++    }
+     return X_STATUS_SUCCESS;
+   } else {
+     return X_STATUS_END_OF_FILE;
+   }
+ }
+ 
++namespace {
++std::atomic<FileReadFilter> g_file_read_filter{nullptr};
++}  // namespace
++
++void SetFileReadFilter(FileReadFilter filter) {
++  g_file_read_filter.store(filter, std::memory_order_release);
++}
++
++FileReadFilter GetFileReadFilter() {
++  return g_file_read_filter.load(std::memory_order_acquire);
++}
++
+ X_STATUS HostPathFile::WriteSync(std::span<const uint8_t> buffer, size_t byte_offset,
+                                  size_t* out_bytes_written) {
+   if (!(file_access_ &
+-- 
+2.55.0.windows.5
+

@@ -35,6 +35,8 @@ REXCVAR_DECLARE(bool, host_present_from_non_ui_thread);
 REXCVAR_DECLARE(bool, present_letterbox);
 // Lets the sampling profiler (profiler.cpp, --pacman_profile) find the UI thread.
 void ProfilerNoteUiThread();
+// Random Championship maze order (random_mazes.cpp, --pacman_random_mazes).
+void RandomMazesSetup(const std::filesystem::path& game_data_root);
 // Graphics API of the GPU plugin: vulkan (default), d3d12 or any (see OnPreSetup).
 REXCVAR_DECLARE(std::string, pacman_gpu_backend);
 
@@ -58,8 +60,11 @@ class PacmanApp : public rex::ReXApp {
     const auto exe_dir = rex::filesystem::GetExecutableFolder();
     if (paths.game_data_root.empty())
       paths.game_data_root = FindGameData(exe_dir);
+    game_data_root_ = paths.game_data_root;
     UsePortableUserData(exe_dir, paths);
   }
+
+  std::filesystem::path game_data_root_;
 
   // Game data, first match: game\ next to the exe (the portable layout), the exe's own folder, or the
   // nearest private\ searching up from the exe (the repo layout, with the build in rexglue\out\build\<preset>\).
@@ -104,6 +109,7 @@ class PacmanApp : public rex::ReXApp {
   // The plugin is loaded here rather than by ReXApp right after this hook, so its settings (the render
   // resolution) exist and can be given defaults before the GPU is set up.
   void OnPreSetup(rex::RuntimeConfig& config) override {
+    RandomMazesSetup(game_data_root_);  // before the game loads its data files
     if (config.gpu_plugin.empty())
       config.gpu_plugin = "xenos";
     if (!config.graphics) {
