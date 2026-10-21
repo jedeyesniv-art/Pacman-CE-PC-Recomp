@@ -18,7 +18,11 @@ Status: plays flawlessly (owner-confirmed): full video/audio, full version, ~7% 
     src\playfield.cpp       moves the picture up (playfield position, see below)
     generated\rexglue.cmake SDK integration (tracked); generated\default\ = codegen output (game code, ignored)
     out\                    build output (ignored)
-- tools\rexglue-sdk\win-amd64\  prebuilt SDK nightly 0.10.0.24 (downloaded, ignored). bin\rexglue.exe = CLI.
+- tools\rexglue-sdk-src\    SDK source at the nightly's commit bd833a2a, branch "pacman" = + our patches
+                            (patches\rexglue-sdk\), built with Vulkan + debug info (ignored). THE SDK WE BUILD WITH.
+- tools\rexglue-sdk-vk\win-amd64\  its install (ignored); PDBs stay in tools\rexglue-sdk-src\out\win-amd64\Release.
+- tools\rexglue-sdk\win-amd64\  the prebuilt nightly 0.10.0.24 (D3D12-only, ignored); no longer used for builds,
+                            but its bin\rexglue.exe CLI is the same version.
 - tools\ppcinspect.py       disassembler helper (capstone): modes fn / dis / words / bytes, on private\default.exe
 - Legacy XenonRecomp work: see the last section.
 
@@ -32,9 +36,12 @@ Scripted builds run inside vcvars64 (not Developer PowerShell - it defaults to x
 - From Git Bash, prefix MSYS_NO_PATHCONV=1 to anything taking /flags, or they get mangled into paths.
 
 ## Build and run
-From rexglue\ (configure once):
-  cmake --preset win-amd64-release -DCMAKE_PREFIX_PATH=C:/PacManRecomp/tools/rexglue-sdk/win-amd64
+From rexglue\ (configure once; package_portable.ps1 also passes the debug-info flags, see there):
+  cmake --preset win-amd64-release -DCMAKE_PREFIX_PATH=C:/PacManRecomp/tools/rexglue-sdk-vk/win-amd64
   cmake --build --preset win-amd64-release        (codegen runs as part of the build; ~15 s)
+Switching a build dir to another SDK: configure with --fresh (cached SDL3_DIR etc. would mix SDKs).
+After an SDK-only rebuild the build dir keeps the old SDK DLLs until pacman.exe relinks (packaging copies them
+from the SDK directly).
 Codegen alone (fast check of config changes): ..\tools\rexglue-sdk\win-amd64\bin\rexglue.exe codegen pacman_manifest.toml
 Run: rexglue\out\build\win-amd64-release\pacman.exe (no arguments needed)
 Use Release for playing and timing. The win-amd64-relwithdebinfo preset (links the SDK's *rd.dll builds) is for
@@ -94,12 +101,17 @@ Release plan (owner, 2026-10-20): eventually publish a ready-made zip (exe + DLL
 
 ## Portable build
   powershell -ExecutionPolicy Bypass -File tools\package_portable.ps1 [-GameData C:\PacManRecomp\private] [-SkipBuild]
-Builds the Release preset and assembles dist\PacManCE\ (git-ignored): pacman.exe, rexruntime.dll,
-rexgpu-xenos.dll, the four VC++ runtime DLLs the binaries import (msvcp140, msvcp140_atomic_wait,
+ONE build for Windows and the Steam Deck (owner decision 2026-10-21): Vulkan by default everywhere
+(pacman_gpu_backend, D3D12 still selectable), streaming blocks auto-on under Wine. On the PC both backends
+measured the same (4K 3x: 60 fps, ~24% GPU). Builds the Release preset against tools\rexglue-sdk-vk with
+line-table debug info and assembles dist\PacManCE\ (git-ignored): pacman.exe, rexruntime.dll,
+rexgpu-xenos.dll (both copied from the SDK), the four VC++ runtime DLLs the binaries import (msvcp140, msvcp140_atomic_wait,
 vcruntime140, vcruntime140_1, from VS's VC\Redist), README.txt (rexglue\README-portable.txt) and licenses\
 (rexglue\licenses\ + SDK's SDL3 licence; ReXGlue's BSD licence requires its notice with binaries). -GameData
 copies the game files into game\ (everything except default.exe). Re-running keeps game\ and userdata\.
-Everything else the binaries import is part of Windows 10/11.
+Everything else the binaries import is part of Windows 10/11 (vulkan-1.dll comes with the GPU driver / Proton).
+dist\symbols\ gets pacman.exe/.pdb and the SDK DLLs/.pdbs of exactly that package, for symbolizing logs.
+Before a public release: licences for glslang, SPIRV-Tools, VMA and the Vulkan headers/loader.
 
 ## Gameplay slowdown - SOLVED 2026-10-20 (root cause: host presentation coupled to the guest frame)
 ReXApp always creates an achievement-toast ImGui dialog; any dialog registers ImGui as a UI drawer, which
@@ -141,10 +153,12 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   tools\rexglue-sdk-src (ignored; submodules shallow, moltenvk skipped). Git on Windows checks libmspack's
   symlinks (cabextract/mspack/*) out as text files - replaced with copies of their targets. Configure inside
   vcvars64: cmake --preset win-amd64 -DREXGLUE_USE_VULKAN=ON -DCMAKE_INSTALL_PREFIX=C:/PacManRecomp/tools/rexglue-sdk-vk/win-amd64
+  plus debug info: "-DCMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG -gline-tables-only -gcodeview" (same for C) and
+  "-DCMAKE_SHARED_LINKER_FLAGS_RELEASE=-Wl,-debug -Wl,-opt:ref -Wl,-opt:icf" (same for EXE),
   then cmake --build out/build/win-amd64 --config Release --target install --parallel (Release only, ~5 min).
-  App: --pacman_gpu_backend=any|d3d12|vulkan (main.cpp); OnPreSetup passes it to LoadGpuPlugin, "any" becomes
-  vulkan under Wine (ntdll exports wine_get_version), falling back to the default if the plugin lacks it.
-  package_portable.ps1 -Vulkan builds out\build\win-amd64-release-vk -> dist\PacManCE-Vulkan.
+  App: --pacman_gpu_backend=vulkan|d3d12|any (main.cpp, default vulkan since the single build); OnPreSetup
+  passes it to LoadGpuPlugin, falling back to the plugin default if the plugin lacks it. RunningUnderWine()
+  (ntdll exports wine_get_version) now only gates ApplyWineDefaults.
   On Windows the Vulkan backend renders correctly (screenshots matched D3D12 at 1x and 3x), 60 fps, similar
   CPU; it logs "Vulkan draw resolution scaling is experimental". Imports unchanged (vulkan-1.dll loaded at
   runtime). Before a public release: add licences for glslang, SPIRV-Tools, VMA, Vulkan headers.
@@ -178,12 +192,12 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   under ten visible bumps. Slow frames are single missed vblanks (30-35 ms), 0-13 per 10 s, not tied to draw
   count. A/B with pacman_fast_gpu_handshake off: 1.3% vs 0.9% missed vblanks, GPU Commands 30% vs 95% of a
   core, owner felt off slightly better -> off under Wine too (b72bf7b). Remaining bumps accepted (owner: "not so
-  bad", mostly noticed on the frame graph). dist\PacManCE-Vulkan is now a clean Deck play build (no pacman.toml).
+  bad", mostly noticed on the frame graph). Then the single build (see Portable build) replaced the separate
+  Deck folder; dist\PacManCE-Vulkan-old-deck-build.zip kept until the owner confirms it on the Deck.
 - The "Pac-Man build <date> <time>" log line is main.cpp's compile time (__DATE__/__TIME__), so it only changes
   when main.cpp or pacman_app.h recompile - not a reliable build ID.
 - Re-applying the patch to a fresh SDK clone: git -C tools\rexglue-sdk-src am ..\..\patches\rexglue-sdk\*.patch
-  (plus the libmspack symlink fix). The win-amd64-release-vk build dir only re-copies SDK DLLs when pacman.exe
-  relinks - after an SDK-only change copy rexgpu-xenos.dll / rexruntime.dll in by hand (or touch a source).
+  (plus the libmspack symlink fix).
 
 ## Known issues
 - (Resolved, see above) Game-logic slowdown in places (owner, 2026-10-20 portable build): presented frame rate stays constant,

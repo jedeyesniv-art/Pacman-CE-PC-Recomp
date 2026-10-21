@@ -2,24 +2,28 @@
 #   pacman.exe + runtime DLLs + Visual C++ runtime DLLs + README + licences, and an empty game\ folder.
 # Game files are only copied when -GameData is given (dist\ is git-ignored; never commit game files).
 #
+# One build for Windows and the Steam Deck (Proton). It is built against the SDK compiled from source with
+# the Vulkan backend and our patches (tools\rexglue-sdk-vk, see CLAUDE.md), with line-table debug info so that
+# crash logs can be symbolized: the matching PDBs go to dist\symbols\ (not part of the play folder).
+#
 # Usage (from anywhere):
-#   powershell -ExecutionPolicy Bypass -File tools\package_portable.ps1 [-GameData C:\PacManRecomp\private] [-SkipBuild] [-Vulkan]
-# -Vulkan: build against the SDK built from source with the Vulkan backend too (tools\rexglue-sdk-vk) instead of
-# the prebuilt D3D12-only one, in out\build\win-amd64-release-vk, into dist\PacManCE-Vulkan\. That exe picks
-# Vulkan by itself under Wine/Proton and keeps D3D12 on Windows.
+#   powershell -ExecutionPolicy Bypass -File tools\package_portable.ps1 [-GameData C:\PacManRecomp\private] [-SkipBuild]
 param(
     [string]$GameData = "",
-    [switch]$SkipBuild,
-    [switch]$Vulkan
+    [switch]$SkipBuild
 )
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $repo "rexglue"
-$suffix = if ($Vulkan) { "-vk" } else { "" }
-$buildDir = Join-Path $project "out\build\win-amd64-release$suffix"
-$sdk = Join-Path $repo $(if ($Vulkan) { "tools\rexglue-sdk-vk\win-amd64" } else { "tools\rexglue-sdk\win-amd64" })
-$dist = Join-Path $repo $(if ($Vulkan) { "dist\PacManCE-Vulkan" } else { "dist\PacManCE" })
+$buildDir = Join-Path $project "out\build\win-amd64-release"
+$sdk = Join-Path $repo "tools\rexglue-sdk-vk\win-amd64"
+$sdkPdbs = Join-Path $repo "tools\rexglue-sdk-src\out\win-amd64\Release"
+$dist = Join-Path $repo "dist\PacManCE"
+$symbols = Join-Path $repo "dist\symbols"
+if (-not (Test-Path (Join-Path $sdk "bin\rexgpu-xenos.dll"))) {
+    throw "SDK not found at $sdk - build it from source first (CLAUDE.md, 'Vulkan build')"
+}
 
 $vsRoot = "C:\Program Files\Microsoft Visual Studio\18\Community"
 $vcvars = Join-Path $vsRoot "VC\Auxiliary\Build\vcvars64.bat"
@@ -30,9 +34,10 @@ if (-not $SkipBuild) {
     # so the commands are chained with "&" and success is judged by the build output instead.
     $env:PATH = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;$env:PATH"
     $sdkCmake = $sdk -replace '\\', '/'
-    $log = Join-Path $buildDir "..\package_build$suffix.log"
+    $log = Join-Path $buildDir "..\package_build.log"
     New-Item -ItemType Directory -Force (Split-Path $log) | Out-Null
-    cmd /c "`"$vcvars`" >nul 2>&1 & set `"PATH=$llvmBin;%PATH%`" & cd /d `"$project`" & cmake --preset win-amd64-release -B `"$buildDir`" -DCMAKE_PREFIX_PATH=$sdkCmake > `"$log`" 2>&1 & cmake --build `"$buildDir`" >> `"$log`" 2>&1"
+    $debugInfo = "`"-DCMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG -gline-tables-only -gcodeview`" `"-DCMAKE_C_FLAGS_RELEASE=-O3 -DNDEBUG -gline-tables-only -gcodeview`" `"-DCMAKE_EXE_LINKER_FLAGS_RELEASE=-Wl,-debug -Wl,-opt:ref -Wl,-opt:icf`""
+    cmd /c "`"$vcvars`" >nul 2>&1 & set `"PATH=$llvmBin;%PATH%`" & cd /d `"$project`" & cmake --preset win-amd64-release -DCMAKE_PREFIX_PATH=$sdkCmake $debugInfo > `"$log`" 2>&1 & cmake --build `"$buildDir`" >> `"$log`" 2>&1"
     if (Select-String -Path $log -Pattern "FAILED|error:" -Quiet) {
         Get-Content $log | Select-String -Pattern "FAILED|error:" | Select-Object -First 20
         throw "Release build failed; see $log"
@@ -53,7 +58,8 @@ New-Item -ItemType Directory -Force $dist | Out-Null
 Get-ChildItem $dist -File | Remove-Item -Force
 New-Item -ItemType Directory -Force (Join-Path $dist "game"), (Join-Path $dist "licenses") | Out-Null
 
-Copy-Item (Join-Path $buildDir "pacman.exe"), (Join-Path $buildDir "rexruntime.dll"), (Join-Path $buildDir "rexgpu-xenos.dll") $dist
+# The SDK DLLs come straight from the SDK: the build folder only re-copies them when pacman.exe relinks.
+Copy-Item (Join-Path $buildDir "pacman.exe"), (Join-Path $sdk "bin\rexruntime.dll"), (Join-Path $sdk "bin\rexgpu-xenos.dll") $dist
 foreach ($f in $crtFiles) { Copy-Item (Join-Path $crt.FullName $f) $dist }
 Copy-Item (Join-Path $project "README-portable.txt") (Join-Path $dist "README.txt")
 Copy-Item (Join-Path $project "licenses\*") (Join-Path $dist "licenses")
@@ -67,6 +73,12 @@ if ($GameData) {
         Copy-Item -Destination (Join-Path $dist "game") -Recurse -Force
     Write-Host "Copied game files from $GameData"
 }
+
+# Symbols for exactly these binaries, to read crash logs and profiles (llvm-symbolizer --obj=<binary> <address>).
+if (Test-Path $symbols) { Remove-Item $symbols -Recurse -Force }
+New-Item -ItemType Directory -Force $symbols | Out-Null
+Copy-Item (Join-Path $dist "pacman.exe"), (Join-Path $buildDir "pacman.pdb"), (Join-Path $dist "rexruntime.dll"),
+    (Join-Path $dist "rexgpu-xenos.dll"), (Join-Path $sdkPdbs "rexruntime.pdb"), (Join-Path $sdkPdbs "rexgpu-xenos.pdb") $symbols
 
 Write-Host "Portable folder: $dist"
 Get-ChildItem $dist | Select-Object Name, Length | Format-Table -AutoSize
