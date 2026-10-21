@@ -62,8 +62,37 @@ New-Item -ItemType Directory -Force (Join-Path $dist "game"), (Join-Path $dist "
 Copy-Item (Join-Path $buildDir "pacman.exe"), (Join-Path $sdk "bin\rexruntime.dll"), (Join-Path $sdk "bin\rexgpu-xenos.dll") $dist
 foreach ($f in $crtFiles) { Copy-Item (Join-Path $crt.FullName $f) $dist }
 Copy-Item (Join-Path $project "README-portable.txt") (Join-Path $dist "README.txt")
+# Licences: our notices (rexglue\licenses: overview, ReXGlue, disruptorplus) plus the licence texts of every
+# third-party library linked into the binaries, from the SDK source tree they were built from. Keep this list in
+# step with rexglue\licenses\THIRD-PARTY-NOTICES.txt.
+Get-ChildItem (Join-Path $dist "licenses") -File | Remove-Item -Force
 Copy-Item (Join-Path $project "licenses\*") (Join-Path $dist "licenses")
-Copy-Item (Join-Path $sdk "licenses\SDL3\LICENSE.txt") (Join-Path $dist "licenses\SDL3-LICENSE.txt")
+$thirdparty = Join-Path $repo "tools\rexglue-sdk-src\thirdparty"
+$licenseFiles = [ordered]@{
+    "sdl3\LICENSE.txt"                            = "SDL3-LICENSE.txt"
+    "FFmpeg\COPYING.LGPLv2.1"                     = "LGPL-2.1.txt"
+    "FFmpeg\LICENSE.md"                           = "FFmpeg-LICENSE.md"
+    "libmspack\libmspack\COPYING.LIB"             = "libmspack-COPYING.LIB.txt"
+    "glslang\LICENSE.txt"                         = "glslang-LICENSE.txt"
+    "vulkan-headers\LICENSE.md"                   = "Vulkan-Headers-LICENSE.md"
+    "vulkan-headers\LICENSES\MIT.txt"             = "Vulkan-Headers-MIT.txt"
+    "spirv-headers\LICENSE"                       = "SPIRV-Headers-LICENSE.txt"
+    "vulkan-memory-allocator\LICENSE.txt"         = "VulkanMemoryAllocator-LICENSE.txt"
+    "imgui\LICENSE.txt"                           = "imgui-LICENSE.txt"
+    "fmt\LICENSE"                                 = "fmt-LICENSE.txt"
+    "spdlog\LICENSE"                              = "spdlog-LICENSE.txt"
+    "tomlplusplus\LICENSE"                        = "tomlplusplus-LICENSE.txt"
+    "simde\COPYING"                               = "simde-LICENSE.txt"
+    "xxHash\LICENSE"                              = "xxHash-LICENSE.txt"
+    "utfcpp\LICENSE"                              = "utfcpp-LICENSE.txt"
+    "o1heap\LICENSE"                              = "o1heap-LICENSE.txt"
+    "aes_128\LICENSE"                             = "aes_128-LICENSE.txt"
+}
+foreach ($entry in $licenseFiles.GetEnumerator()) {
+    $source = Join-Path $thirdparty $entry.Key
+    if (-not (Test-Path $source)) { throw "Licence file missing: $source" }
+    Copy-Item $source (Join-Path $dist "licenses\$($entry.Value)")
+}
 
 if ($GameData) {
     if (-not (Test-Path (Join-Path $GameData "default.xex"))) { throw "$GameData has no default.xex" }

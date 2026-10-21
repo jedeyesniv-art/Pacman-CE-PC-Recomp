@@ -1,19 +1,70 @@
 Third-party software in this build
 ==================================
 
-ReXGlue SDK (rexruntime.dll, rexgpu-xenos.dll, and the runtime code linked into pacman.exe)
-  BSD 3-Clause; includes code derived from the Xenia project. See ReXGlue-LICENSE.txt.
-  https://github.com/rexglue/rexglue-sdk
+The licence texts are in this folder. Versions are the exact source revisions this build was made from.
 
-SDL3 (linked statically into the ReXGlue runtime)
-  zlib license. See SDL3-LICENSE.txt.
-  https://www.libsdl.org
+ReXGlue SDK - rexruntime.dll, rexgpu-xenos.dll and the runtime code linked into pacman.exe
+  BSD 3-Clause; includes code derived from the Xenia project (https://xenia.jp). See ReXGlue-LICENSE.txt.
+  https://github.com/rexglue/rexglue-sdk - commit bd833a2a (nightly 0.10.0.24) plus this project's patches
+  (patches/rexglue-sdk in this project's source repository).
 
-FFmpeg libavcodec / libavutil (XMA audio decoding, linked into the ReXGlue runtime)
-  GNU Lesser General Public License, version 2.1 or later.
-  Source: https://ffmpeg.org
+FFmpeg - libavcodec / libavutil, WMA Pro decoder only (Xbox XMA audio); linked into rexruntime.dll
+  GNU Lesser General Public License, version 2.1 or later. See LGPL-2.1.txt and FFmpeg-LICENSE.md.
+  No GPL or non-free parts are included. https://ffmpeg.org - source revision
+  0604b464c7cb4ebc94940cf1f324a3b26b87717c.
 
-Microsoft Visual C++ runtime (msvcp140*.dll, vcruntime140*.dll)
-  Redistributable files from Visual Studio, deployed next to the application as Microsoft permits.
+libmspack - LZX decompressor only (lzxd.c, XEX decompression); linked into rexruntime.dll
+  GNU Lesser General Public License, version 2.1. See LGPL-2.1.txt and libmspack-COPYING.LIB.txt.
+  https://www.cabextract.org.uk/libmspack/ - source revision 305907723a4e7ab2018e58040059ffb5e77db837.
+
+  About the LGPL libraries above: they are linked into rexruntime.dll, which is built from the ReXGlue SDK.
+  The complete source code of the SDK (with the exact FFmpeg and libmspack revisions as submodules) and of
+  this project is available as listed above, so you can modify these libraries and rebuild rexruntime.dll
+  with them. The source code of FFmpeg and libmspack at the revisions above is also provided with this
+  release (see the release page) for at least three years.
+
+SDL3 - window, input and audio output; linked into rexruntime.dll
+  zlib licence. See SDL3-LICENSE.txt. https://www.libsdl.org - revision 147a8ee3.
+
+glslang - shader compiler used by the Vulkan renderer; linked into rexgpu-xenos.dll
+  BSD 3-Clause, BSD 2-Clause, MIT, Apache 2.0 and others, per file. See glslang-LICENSE.txt.
+  https://github.com/KhronosGroup/glslang - revision f4f1d8a3.
+
+Vulkan-Headers - Apache 2.0 or MIT (used here under MIT). See Vulkan-Headers-LICENSE.md and
+  Vulkan-Headers-MIT.txt. https://github.com/KhronosGroup/Vulkan-Headers - revision e3b1eec0.
+
+SPIRV-Headers - MIT-style Khronos licence. See SPIRV-Headers-LICENSE.txt.
+  https://github.com/KhronosGroup/SPIRV-Headers - revision 29981f65.
+
+Vulkan Memory Allocator - MIT. See VulkanMemoryAllocator-LICENSE.txt.
+  https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator - revision 1d8f600f.
+
+Dear ImGui - MIT. See imgui-LICENSE.txt. https://github.com/ocornut/imgui - revision 6d910d54.
+
+{fmt} - MIT. See fmt-LICENSE.txt. https://github.com/fmtlib/fmt - revision 407c905e.
+
+spdlog - MIT. See spdlog-LICENSE.txt. https://github.com/gabime/spdlog - revision 79524ddd.
+
+toml++ - MIT. See tomlplusplus-LICENSE.txt. https://github.com/marzer/tomlplusplus - revision 30172438.
+
+SIMDe - MIT. See simde-LICENSE.txt. https://github.com/simd-everywhere/simde - revision 71fd833d.
+
+xxHash - BSD 2-Clause. See xxHash-LICENSE.txt. https://github.com/Cyan4973/xxHash - revision e626a72b.
+
+UTF8-CPP - Boost Software License 1.0. See utfcpp-LICENSE.txt. https://github.com/nemtrif/utfcpp
+
+o1heap - MIT. See o1heap-LICENSE.txt. https://github.com/pavel-kirienko/o1heap - version 3.0.0.
+
+disruptorplus - MIT. See disruptorplus-LICENSE.txt. https://github.com/lewissbaker/disruptorplus
+
+aes_128 - MIT. See aes_128-LICENSE.txt.
+
+DXBC checksum (Direct3D 12 renderer) - Copyright 2008-2016 Advanced Micro Devices, Inc.
+  Contains code derived from the RSA Data Security, Inc. MD5 Message Digest Algorithm.
+
+Microsoft Visual C++ runtime (msvcp140.dll, msvcp140_atomic_wait.dll, vcruntime140.dll, vcruntime140_1.dll)
+  Redistributable files from Microsoft Visual Studio, deployed next to the application as Microsoft permits.
 
 Game files (default.xex, media\, data\) are not included and must come from your own copy of the game.
+Pac-Man Championship Edition is a trademark and copyright of Bandai Namco Entertainment Inc. This project is
+not affiliated with or endorsed by Bandai Namco or Microsoft.

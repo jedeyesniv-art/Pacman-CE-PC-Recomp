@@ -111,7 +111,12 @@ vcruntime140, vcruntime140_1, from VS's VC\Redist), README.txt (rexglue\README-p
 copies the game files into game\ (everything except default.exe). Re-running keeps game\ and userdata\.
 Everything else the binaries import is part of Windows 10/11 (vulkan-1.dll comes with the GPU driver / Proton).
 dist\symbols\ gets pacman.exe/.pdb and the SDK DLLs/.pdbs of exactly that package, for symbolizing logs.
-Before a public release: licences for glslang, SPIRV-Tools, VMA and the Vulkan headers/loader.
+licenses\ (2026-10-21): THIRD-PARTY-NOTICES.txt lists every library linked into the binaries (from the SDK's
+target_link_libraries; Tracy is debug-only, RenderDoc/SPIRV-Tools/DXC headers only, Vulkan loader not shipped)
+with exact revisions; package_portable.ps1 copies the licence texts from toolsexglue-sdk-src	hirdparty.
+LGPL parts: FFmpeg (WMA Pro decoder subset, LGPL-2.1+, no GPL files) and libmspack (lzxd.c) are static in
+rexruntime.dll. Release to-dos: attach FFmpeg + libmspack source archives at those revisions to the release
+(the notices promise it), publish the SDK patches, pick a licence for this project's own code.
 
 ## Gameplay slowdown - SOLVED 2026-10-20 (root cause: host presentation coupled to the guest frame)
 ReXApp always creates an achievement-toast ImGui dialog; any dialog registers ImGui as a UI drawer, which
