@@ -222,6 +222,16 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   Worst hitches went from ~55 ms (3 vblanks) to ~39 ms. (3) What remains: frames where the game itself runs
   ~20 ms of its own code (heap alloc sub_820D2850.., memcpy sub_820B9150, text sub_8212C528, physical allocs),
   in bursts. Not an emulator wait. Possible next step: native replacements for hot CRT routines (uncertain).
+- Gameplay trace (owner, PC, 2026-10-21; dist\PacManCE\trace-session.bat = trace + profiler): long smooth
+  stretches, bumps in bursts (grid refills, flashing ghosts, score pop-ups - owner). Gap samples: ~60% game code,
+  ~20% main thread spinning in the job dispatcher sub_8213ECA8 (workers not sampled yet), ~13% emulator input
+  (InputSystem::RefreshDevices re-enumerated every driver on every input call: SDL joystick lock contended with
+  the UI thread; MnkInputDriver posted a mouse-capture update to the UI thread on every read), ~7%
+  BaseHeap::AllocRange linear page-table scans (MmAllocatePhysicalMemoryEx). SDK patches 0003 (device refresh at
+  most every input_device_refresh_ms = 250; capture post only on change) and 0004 (free-page hints in
+  AllocRange) fix the last two: in a re-check the AllocRange scan vanished and input fell to ~4% of gap samples.
+  Not yet done (owner's list): lighter lwsync/sync fences, -march=x86-64-v3 / PGO for game code, sampling the
+  job workers, native CRT routines, presentation buffer (last resort).
 - The "Pac-Man build <date> <time>" log line is main.cpp's compile time (__DATE__/__TIME__), so it only changes
   when main.cpp or pacman_app.h recompile - not a reliable build ID.
 - Re-applying the patch to a fresh SDK clone: git -C tools\rexglue-sdk-src am ..\..\patches\rexglue-sdk\*.patch

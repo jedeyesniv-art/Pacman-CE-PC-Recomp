@@ -1,0 +1,106 @@
+From 86b35eec61c84e2ea92661c9343a79cf27407718 Mon Sep 17 00:00:00 2001
+From: John <326213404+jedeyesniv-art@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 14:57:27 +0100
+Subject: [PATCH 4/4] Memory: free-page search hints in BaseHeap::AllocRange
+
+AllocRange walked the page table from the bottom (or top) of the range on every
+allocation, past all pages in use. Keep a low and a high hint (all pages beyond
+them are in use), advanced lazily and widened by Release/Reset/Restore.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ include/rex/system/xmemory.h |  9 +++++++++
+ src/system/xmemory.cpp       | 21 ++++++++++++++++++++-
+ 2 files changed, 29 insertions(+), 1 deletion(-)
+
+diff --git a/include/rex/system/xmemory.h b/include/rex/system/xmemory.h
+index 0c39a42..c00c302 100644
+--- a/include/rex/system/xmemory.h
++++ b/include/rex/system/xmemory.h
+@@ -270,6 +270,15 @@ class BaseHeap {
+   rex::thread::global_critical_region global_critical_region_;
+   std::recursive_mutex heap_mutex_;
+   std::vector<PageEntry> page_table_;
++  // Free-page search hints (under heap_mutex_): every page below free_low_hint_ and above free_high_hint_ is
++  // in use, so AllocRange can skip them instead of re-walking the page table on every allocation. Pages only
++  // become free in Release (and Reset/Restore), which widens the hints again.
++  uint32_t free_low_hint_ = 0;
++  uint32_t free_high_hint_ = 0;
++  void ResetFreeHints() {
++    free_low_hint_ = 0;
++    free_high_hint_ = page_table_.empty() ? 0 : uint32_t(page_table_.size() - 1);
++  }
+ };
+ 
+ // Normal heap allowing allocations from guest virtual address ranges.
+diff --git a/src/system/xmemory.cpp b/src/system/xmemory.cpp
+index 76cc877..c435094 100644
+--- a/src/system/xmemory.cpp
++++ b/src/system/xmemory.cpp
+@@ -1042,6 +1042,7 @@ void BaseHeap::Initialize(memory::Memory* memory, uint8_t* membase, HeapType hea
+   host_address_offset_ = host_address_offset;
+   page_table_.resize(heap_size / page_size);
+   unreserved_page_count_ = uint32_t(page_table_.size());
++  ResetFreeHints();
+ }
+ 
+ void BaseHeap::Dispose() {
+@@ -1173,6 +1174,7 @@ bool BaseHeap::Restore(stream::ByteStream* stream) {
+   // Restore doesn't take heap_mutex_, but SyncHostPageAccess below still needs
+   // the global critical region held by its caller.
+   auto global_lock = AcquireHostPageReconcileLock();
++  ResetFreeHints();
+ 
+   for (size_t i = 0; i < page_table_.size(); i++) {
+     auto& page = page_table_[i];
+@@ -1243,6 +1245,7 @@ bool BaseHeap::Restore(stream::ByteStream* stream) {
+ void BaseHeap::Reset() {
+   // TODO(DrChat): protect pages.
+   std::memset(page_table_.data(), 0, sizeof(PageEntry) * page_table_.size());
++  ResetFreeHints();
+   // TODO(Triang3l): Remove access callbacks from pages if this is a physical
+   // memory heap.
+ }
+@@ -1426,7 +1429,17 @@ bool BaseHeap::AllocRange(uint32_t low_address, uint32_t high_address, uint32_t
+   uint32_t end_page_number = UINT_MAX;
+   uint32_t page_scan_stride = alignment >> page_size_shift_;
+   uint32_t max_base_page_number = high_page_number + 1 - page_count;
++  // Skip the pages the free hints know are in use (first moving the hints past pages taken since).
++  while (free_low_hint_ < page_table_.size() && page_table_[free_low_hint_].state != 0) {
++    ++free_low_hint_;
++  }
++  while (free_high_hint_ > 0 && page_table_[free_high_hint_].state != 0) {
++    --free_high_hint_;
++  }
+   if (top_down) {
++    if (free_high_hint_ + 1 >= page_count) {
++      max_base_page_number = std::min(max_base_page_number, free_high_hint_ + 1 - page_count);
++    }
+     max_base_page_number -= max_base_page_number % page_scan_stride;
+     for (int64_t base_page_number = max_base_page_number; base_page_number >= low_page_number;
+          base_page_number -= page_scan_stride) {
+@@ -1466,7 +1479,11 @@ bool BaseHeap::AllocRange(uint32_t low_address, uint32_t high_address, uint32_t
+       start_page_number = end_page_number = UINT_MAX;
+     }
+   } else {
+-    for (uint32_t base_page_number = low_page_number; base_page_number <= max_base_page_number;
++    uint32_t first_base_page_number = low_page_number;
++    if (free_low_hint_ > first_base_page_number) {
++      first_base_page_number = rex::round_up(free_low_hint_, page_scan_stride);
++    }
++    for (uint32_t base_page_number = first_base_page_number; base_page_number <= max_base_page_number;
+          base_page_number += page_scan_stride) {
+       if (page_table_[base_page_number].state != 0) {
+         // Base page not free, skip to next usable page.
+@@ -1636,6 +1653,8 @@ bool BaseHeap::Release(uint32_t base_address, uint32_t* out_region_size) {
+     page_entry.qword = 0;
+     unreserved_page_count_++;
+   }
++  free_low_hint_ = std::min(free_low_hint_, base_page_number);
++  free_high_hint_ = std::max(free_high_hint_, end_page_number);
+ 
+   if (!SyncHostPageAccess(base_page_number, end_page_number)) {
+     return false;
+-- 
+2.55.0.windows.5
+

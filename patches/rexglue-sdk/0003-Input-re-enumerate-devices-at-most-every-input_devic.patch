@@ -1,0 +1,126 @@
+From 02d041364b4596ee8bf74c82f31f1b8c614048ef Mon Sep 17 00:00:00 2001
+From: John <326213404+jedeyesniv-art@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 14:57:27 +0100
+Subject: [PATCH 3/4] Input: re-enumerate devices at most every
+ input_device_refresh_ms; skip no-op capture posts
+
+Games read input several times a frame and each read re-enumerated every driver,
+taking SDL's joystick lock (held by the UI thread while it pumps controller
+events). Devices are now re-enumerated at most every 250 ms (cvar, 0 = old
+behaviour). The keyboard/mouse driver also posted a mouse-capture update to the
+UI thread on every read; it now only posts when the capture state would change.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ include/rex/input/input_system.h         |  5 ++++-
+ include/rex/input/mnk/mnk_input_driver.h |  3 +++
+ src/input/input_system.cpp               | 17 +++++++++++++++++
+ src/input/mnk/mnk_input_driver.cpp       |  5 +++++
+ 4 files changed, 29 insertions(+), 1 deletion(-)
+
+diff --git a/include/rex/input/input_system.h b/include/rex/input/input_system.h
+index 0c27eed..344df09 100644
+--- a/include/rex/input/input_system.h
++++ b/include/rex/input/input_system.h
+@@ -69,8 +69,11 @@ class InputSystem : public system::IInputSystem {
+  private:
+   using JoystickValue = std::pair<uint16_t, uint16_t>;
+   /// Re-enumerates every driver and notifies the assignment when the set
+-  /// changed.
++  /// changed. At most once per input_device_refresh_ms: games read input
++  /// several times a frame, and enumerating takes SDL's joystick lock, which
++  /// the UI thread holds while it pumps controller events.
+   void RefreshDevices();
++  std::atomic<int64_t> last_refresh_ms_{INT64_MIN / 2};
+   InputDriver* DriverForDevice(DeviceId id);
+   const DeviceInfo* DeviceInfoFor(DeviceId id) const;
+   /// The device that speaks for a user, preferring the one most recently in
+diff --git a/include/rex/input/mnk/mnk_input_driver.h b/include/rex/input/mnk/mnk_input_driver.h
+index 2d36faa..d7ad692 100644
+--- a/include/rex/input/mnk/mnk_input_driver.h
++++ b/include/rex/input/mnk/mnk_input_driver.h
+@@ -96,6 +96,9 @@ class MnkInputDriver final : public InputDriver,
+   int32_t prev_mouse_x_ = 0;
+   int32_t prev_mouse_y_ = 0;
+   bool mouse_captured_ = false;
++  // mouse_captured_ for other threads: lets QueueMouseCaptureUpdate skip posting to the UI thread when nothing
++  // would change (it is called on every input read).
++  std::atomic<bool> mouse_captured_shadow_{false};
+   // Whether the window has the pointer locked and is reporting relative motion.
+   bool relative_mouse_mode_ = false;
+   // Cursor visibility to restore on capture release - the window owner may run
+diff --git a/src/input/input_system.cpp b/src/input/input_system.cpp
+index 40740ee..e0b8527 100644
+--- a/src/input/input_system.cpp
++++ b/src/input/input_system.cpp
+@@ -10,6 +10,7 @@
+  */
+ 
+ #include <algorithm>
++#include <chrono>
+ #include <cmath>
+ #include <cstring>
+ 
+@@ -31,6 +32,12 @@ REXCVAR_DEFINE_STRING(input_backend, "sdl", "Input", "Input backend: sdl, xinput
+ 
+ REXCVAR_DEFINE_BOOL(guide_button, false, "Input", "Enable guide button pass-through");
+ 
++REXCVAR_DEFINE_INT32(input_device_refresh_ms, 250, "Input",
++                     "Minimum interval between input device re-enumerations, in ms (0 = on every input call). "
++                     "Hot-plugged controllers appear within this time")
++    .range(0, 5000)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_BOOL(vibration, true, "Input", "Enable controller vibration");
+ 
+ REXCVAR_DEFINE_DOUBLE(left_stick_deadzone_percentage, 0.0, "Input",
+@@ -93,6 +100,16 @@ void InputSystem::SetDeviceAssignment(std::unique_ptr<DeviceAssignment> assignme
+ }
+ 
+ void InputSystem::RefreshDevices() {
++  const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
++                             std::chrono::steady_clock::now().time_since_epoch())
++                             .count();
++  const int64_t interval_ms = REXCVAR_GET(input_device_refresh_ms);
++  if (interval_ms > 0 && !devices_.empty() &&
++      now_ms - last_refresh_ms_.load(std::memory_order_relaxed) < interval_ms) {
++    return;
++  }
++  last_refresh_ms_.store(now_ms, std::memory_order_relaxed);
++
+   std::vector<DeviceInfo> seen;
+   std::vector<InputDriver*> owners;
+   std::vector<DeviceInfo> enumerated;
+diff --git a/src/input/mnk/mnk_input_driver.cpp b/src/input/mnk/mnk_input_driver.cpp
+index 3d2c378..9cd8b76 100644
+--- a/src/input/mnk/mnk_input_driver.cpp
++++ b/src/input/mnk/mnk_input_driver.cpp
+@@ -630,6 +630,9 @@ void MnkInputDriver::RefreshBoundKeystrokesLocked() {
+ 
+ void MnkInputDriver::QueueMouseCaptureUpdate(bool should_capture) {
+   mouse_capture_requested_.store(should_capture, std::memory_order_relaxed);
++  if (should_capture == mouse_captured_shadow_.load(std::memory_order_relaxed)) {
++    return;  // already in that state (a pending update, if any, reads the latest request)
++  }
+   bool already_queued = false;
+   if (!mouse_capture_update_queued_.compare_exchange_strong(already_queued, true)) {
+     return;
+@@ -660,6 +663,7 @@ void MnkInputDriver::ApplyMouseCaptureFromUIThread() {
+     return;
+   }
+   mouse_captured_ = true;
++  mouse_captured_shadow_.store(true, std::memory_order_relaxed);
+   precapture_cursor_visibility_ = window->GetCursorVisibility();
+   window->SetCursorVisibility(rex::ui::Window::CursorVisibility::kHidden);
+   window->CaptureMouse();
+@@ -678,6 +682,7 @@ void MnkInputDriver::ReleaseMouseCaptureFromUIThread(rex::ui::Window* window) {
+     return;
+   }
+   mouse_captured_ = false;
++  mouse_captured_shadow_.store(false, std::memory_order_relaxed);
+   window->SetCursorVisibility(precapture_cursor_visibility_);
+   window->SetRelativeMouseMode(false);
+   relative_mouse_mode_ = false;
+-- 
+2.55.0.windows.5
+
