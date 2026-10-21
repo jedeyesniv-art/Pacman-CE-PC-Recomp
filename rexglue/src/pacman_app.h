@@ -38,6 +38,10 @@ void ProfilerNoteUiThread();
 // Graphics API of the GPU plugin: vulkan (default), d3d12 or any (see OnPreSetup).
 REXCVAR_DECLARE(std::string, pacman_gpu_backend);
 
+#if PACMAN_PGO_GENERATE
+extern "C" int __llvm_profile_write_file(void);  // clang's profile runtime
+#endif
+
 class PacmanApp : public rex::ReXApp {
  public:
   using rex::ReXApp::ReXApp;
@@ -301,6 +305,11 @@ class PacmanApp : public rex::ReXApp {
   bool OnWindowCloseRequested() override {
     close_requested_ = true;
     REXLOG_INFO("window close requested");
+#if PACMAN_PGO_GENERATE
+    // Instrumented build (PACMAN_PGO=generate): write the counts here; the exit path never reaches the profile
+    // runtime's atexit handler (or OnShutdown).
+    REXLOG_INFO("PGO: writing profile ({})", __llvm_profile_write_file() == 0 ? "ok" : "failed");
+#endif
     return true;
   }
   void OnGuestThreadExit(rex::system::XThread*) override {

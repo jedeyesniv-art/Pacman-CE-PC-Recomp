@@ -44,3 +44,16 @@ set(PACMAN_CPU_LEVEL "x86-64-v3" CACHE STRING "-march level for the recompiled g
 if(TARGET pacman_recomp)
     target_compile_options(pacman_recomp PRIVATE -march=${PACMAN_CPU_LEVEL} -ffp-contract=off)
 endif()
+
+# Profile-guided optimisation of the game code: PACMAN_PGO=generate builds an instrumented exe that writes
+# counts (LLVM_PROFILE_FILE) on exit; merge them with llvm-profdata and set PACMAN_PGO to the .profdata path.
+set(PACMAN_PGO "" CACHE STRING "Profile-guided optimisation: empty, generate, or path to a .profdata")
+if(TARGET pacman_recomp AND PACMAN_PGO STREQUAL "generate")
+    target_compile_options(pacman_recomp PRIVATE -fprofile-instr-generate)
+    target_link_options(pacman PRIVATE -fprofile-instr-generate)
+    # The app writes the counts itself on shutdown (pacman_app.h): its exit path skips the runtime's atexit.
+    target_compile_definitions(pacman PRIVATE PACMAN_PGO_GENERATE=1)
+elseif(TARGET pacman_recomp AND PACMAN_PGO)
+    target_compile_options(pacman_recomp PRIVATE -fprofile-instr-use=${PACMAN_PGO}
+                           -Wno-profile-instr-out-of-date -Wno-profile-instr-unprofiled)
+endif()
