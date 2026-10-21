@@ -129,6 +129,15 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   so a native Linux build skips Wine and vkd3d. Port needs: ShortSleep (waitable timer), frame_stats
   (VEH, toolhelp/GetThreadTimes), EnumDisplaySettingsW, pacman.rc. Needs WSL (not installed yet) or another
   Linux build environment.
+- 2026-10-21 findings: the game issues one draw call per sprite: sub_8213AB98 / sub_8213AD30 set texture,
+  shaders, vertex constants c0-c3 and per-sprite constants (device+0x740..0x75C), then draw a 4-vertex quad
+  via sub_820CB840(dev, 6, 0, 4). Frame stats now count these: 200-450 per frame in menu/attract (gameplay
+  with dot grids not yet measured). On PC the "GPU Commands" thread handles that in ~1 ms/frame; the Deck's
+  10-23 ms fits the same per-draw work ~10x slower through Wine + vkd3d-proton.
+- Middle option before a Linux port: the SDK builds the Vulkan backend on Windows too (REXGLUE_USE_VULKAN, OFF
+  in the prebuilt win-amd64 SDK; plugin_main.cpp picks the backend from GpuCreateInfo::backend). A Windows
+  build with Vulkan skips vkd3d-proton under Proton (winevulkan passes through to RADV). Needs the SDK built
+  from source.
 
 ## Known issues
 - (Resolved, see above) Game-logic slowdown in places (owner, 2026-10-20 portable build): presented frame rate stays constant,
