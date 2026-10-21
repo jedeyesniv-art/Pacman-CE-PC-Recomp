@@ -51,8 +51,13 @@ core (measured 2026-10-20; the same source loads fast in Release). A failed conf
   Useful options: --log_file=<path> --log_level=debug|trace, --license_mask=<n>, --game_data_root=<dir>
 Defaults set in src\pacman_app.h (command-line values still win, except that an explicit empty/0 value
 can't be told apart from "not set"):
-- game data, first match: game\ next to the exe (portable layout), the exe's folder, then the nearest private\
-  searching up from the exe (repo layout)
+- game data, first match: game\ next to the exe (portable layout) with the unpacked files, or Pac-Man CE's STFS
+  package anywhere under game\ (FindGamePackage: LIVE/CON/PIRS header, title ID 58410877 at 0x360, up to 3
+  folders deep), the exe's folder, then the nearest private\ searching up from the exe (repo layout).
+  Packages are mounted by SDK patch 0009 (Runtime::SetupVfs mounts a file game_data_root as a read-only
+  StfsContainerDevice; ReXApp skips its on-disk default.xex check then). The owner's XBLA dump is
+  private\stfs\E7FEF86C... (LIVE, content type 000D0000); tested 2026-10-21: boots, menus, attract demo, and
+  found automatically in game\58410877\000D0000\.
 - user data + shader cache: userdata\ next to the exe; falls back to the SDK default Documents\pacman when
   that can't be created (e.g. Program Files)
 - GPU: gpu_plugin = "xenos" (the SDK default is no GPU emulation; CMakeLists passes GPU_PLUGINS xenos so

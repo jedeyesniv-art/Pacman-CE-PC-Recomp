@@ -21,7 +21,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 
 #include <windows.h> // EnumDisplaySettingsW
@@ -64,17 +66,45 @@ class PacmanApp : public rex::ReXApp {
   }
 
 
-  // Game data, first match: game\ next to the exe (the portable layout), the exe's own folder, or the
+  // Game data, first match: game\ next to the exe (the portable layout) holding the unpacked files or the game's
+  // package file (STFS, as dumped from the console; mounted by SDK patch 0009), the exe's own folder, or the
   // nearest private\ searching up from the exe (the repo layout, with the build in rexglue\out\build\<preset>\).
-  // Empty if none holds default.xex, so the SDK asks for it.
+  // Empty if none is found, so the SDK asks for it.
   static std::filesystem::path FindGameData(const std::filesystem::path& exe_dir) {
     if (std::filesystem::exists(exe_dir / "game" / "default.xex"))
       return exe_dir / "game";
+    if (auto package = FindGamePackage(exe_dir / "game"); !package.empty())
+      return package;
     if (std::filesystem::exists(exe_dir / "default.xex"))
       return exe_dir;
     for (auto dir = exe_dir; dir.has_relative_path(); dir = dir.parent_path()) {
       if (std::filesystem::exists(dir / "private" / "default.xex"))
         return dir / "private";
+    }
+    return {};
+  }
+
+  // Pac-Man CE's package file anywhere under dir (dumps often keep the console's 58410877\000D0000\ folders):
+  // an STFS header (LIVE, CON or PIRS) with the game's title ID at 0x360.
+  static std::filesystem::path FindGamePackage(const std::filesystem::path& dir) {
+    constexpr uint8_t TitleId[] = {0x58, 0x41, 0x08, 0x77};
+    std::error_code error;
+    for (auto it = std::filesystem::recursive_directory_iterator(dir, error);
+         !error && it != std::filesystem::recursive_directory_iterator(); it.increment(error)) {
+      if (it.depth() > 3) {
+        it.disable_recursion_pending();
+        continue;
+      }
+      if (!it->is_regular_file(error) || it->file_size(error) < 0x1000)
+        continue;
+      std::ifstream file(it->path(), std::ios::binary);
+      uint8_t header[0x364] = {};
+      if (!file.read(reinterpret_cast<char*>(header), sizeof(header)))
+        continue;
+      const bool stfs = std::memcmp(header, "LIVE", 4) == 0 || std::memcmp(header, "CON ", 4) == 0 ||
+                        std::memcmp(header, "PIRS", 4) == 0;
+      if (stfs && std::memcmp(header + 0x360, TitleId, 4) == 0)
+        return it->path();
     }
     return {};
   }

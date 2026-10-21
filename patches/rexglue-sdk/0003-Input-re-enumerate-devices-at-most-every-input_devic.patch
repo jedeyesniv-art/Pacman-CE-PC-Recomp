@@ -1,7 +1,7 @@
 From 02d041364b4596ee8bf74c82f31f1b8c614048ef Mon Sep 17 00:00:00 2001
 From: John <326213404+jedeyesniv-art@users.noreply.github.com>
 Date: Wed, 21 Oct 2026 14:57:27 +0100
-Subject: [PATCH 3/8] Input: re-enumerate devices at most every
+Subject: [PATCH 3/9] Input: re-enumerate devices at most every
  input_device_refresh_ms; skip no-op capture posts
 
 Games read input several times a frame and each read re-enumerated every driver,

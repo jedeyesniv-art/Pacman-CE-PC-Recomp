@@ -2,10 +2,10 @@ Pac-Man Championship Edition - native PC build
 ==============================================
 
 Setup
-  Put your own copy of the game's files in the game\ folder, so that it contains:
-    game\default.xex
-    game\media\...
-    game\data\...
+  Put your own copy of the game in the game\ folder, either way:
+    - the game's package file as dumped from your console (one file with a long hexadecimal name, often
+      inside 58410877\000D0000\ folders - copy those along, or just the file), or
+    - the unpacked files: game\default.xex, game\media\..., game\data\...
   Then run pacman.exe. No installation is needed; the whole folder can be moved or copied.
 
 Files
@@ -51,4 +51,4 @@ Options (on the command line, e.g. pacman.exe --fullscreen=false)
   --pacman_playfield_offset=<pixels>         move the picture up (default 40; 0 = original position)
   --log_file=pacman.log --log_level=debug   write a log
   --license_mask=<n>                         licence bits (the default, 1, is the full game)
-  --game_data_root=<dir>                     use game files from another folder
+  --game_data_root=<dir or file>             use game files from another folder, or a package file
