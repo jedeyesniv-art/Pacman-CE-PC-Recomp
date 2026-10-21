@@ -304,3 +304,33 @@ registers = ["r3", "r4", "r5", "r6", "r7"]
 [[invalid_instructions]]
 data = 0x00000000
 size = 4
+
+# Random maze order at run time (src/random_mazes.cpp): the stage lookups sub_8213E948 (maze file name of stage N
+# in a section) and sub_82140210 (its number) both reduce the index modulo the section's child count; hooked on
+# that divwu to remap the index (r3 = section, count in r10 / r11, index in r31 / r30).
+[[midasm_hook]]
+address = 0x8213E974
+name = "StageNameIndexHook"
+registers = ["r3", "r10", "r31"]
+
+[[midasm_hook]]
+address = 0x82140240
+name = "StageValueIndexHook"
+registers = ["r3", "r11", "r30"]
+
+# ... and the run start in sub_8213F438, where the three stage counters are reset (both branches): new order.
+[[midasm_hook]]
+address = 0x8213F498
+name = "StageRunStartHook"
+
+[[midasm_hook]]
+address = 0x8213F504
+name = "StageRunStartHook"
+
+# ... and no high scores in random runs: entry of sub_820A8CE8(r3 = the game's save data, r4 = size), which copies
+# it into the live save buffer and saves; skipped (returns) while a random run is going.
+[[midasm_hook]]
+address = 0x820A8CE8
+name = "SaveCommitHook"
+registers = ["r3", "r4"]
+return_on_true = true

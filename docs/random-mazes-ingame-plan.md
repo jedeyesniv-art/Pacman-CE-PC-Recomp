@@ -1,6 +1,8 @@
-# In-game random-mazes toggle - plan (2026-10-21, not started; nothing built or changed yet)
+# In-game random-mazes toggle - DONE 2026-10-21 (see CLAUDE.md "Game data / mods"; this file is the history)
 
-Owner's design: on the main menu, R3 toggles random mazes; while on, the menu is tinted (red or rainbow
+Built as: R3 on the title screen toggles it; the title logo and the menu highlight turn red while on (owner's
+refined design).
+Original design: on the main menu, R3 toggles random mazes; while on, the menu is tinted (red or rainbow
 instead of blue). Championship then starts random or normal. Random runs record NO high scores (owner's
 choice: "secret bonus mode", runs can't be replicated). The startup option / random-mazes.bat stays.
 

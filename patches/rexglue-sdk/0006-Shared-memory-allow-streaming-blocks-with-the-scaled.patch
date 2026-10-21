@@ -1,7 +1,7 @@
 From 0feaf8386d44e9c7d710c52ebe1cd6ba21b80a19 Mon Sep 17 00:00:00 2001
 From: John <326213404+jedeyesniv-art@users.noreply.github.com>
 Date: Wed, 21 Oct 2026 15:52:56 +0100
-Subject: [PATCH 6/7] Shared memory: allow streaming blocks with the
+Subject: [PATCH 6/8] Shared memory: allow streaming blocks with the
  scaled-resolve global watch
 
 At draw resolution scales above 1 the texture cache registers a global watch, and

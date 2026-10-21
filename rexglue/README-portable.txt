@@ -29,6 +29,12 @@ Controls
   To change a key, set its keybind_* option, e.g. --keybind_start=P,Tab (a comma list of key names), or turn
   the keyboard off with --mnk_mode=false.
 
+Random mazes (bonus mode)
+  On the title screen, press R3 (click the right stick; R on the keyboard): the logo turns red, and
+  Championship Mode now plays its mazes in a random order, a new one every game (the first maze stays).
+  Press it again to switch back. Random games record no high scores. --pacman_random_mazes=true starts with
+  it on.
+
 Display
   The game renders at your main monitor's resolution: its 1280x720 picture is scaled up by a whole number
   to fill the screen (3x on a 4K screen, 2x on 1440p, 16:10 and ultrawide screens). On a screen or window

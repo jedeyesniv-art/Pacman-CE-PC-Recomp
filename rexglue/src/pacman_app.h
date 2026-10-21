@@ -35,10 +35,8 @@ REXCVAR_DECLARE(bool, host_present_from_non_ui_thread);
 REXCVAR_DECLARE(bool, present_letterbox);
 // Lets the sampling profiler (profiler.cpp, --pacman_profile) find the UI thread.
 void ProfilerNoteUiThread();
-// Random Championship maze order (random_mazes.cpp, --pacman_random_mazes; command line only, see
-// OnConfigurePaths).
-REXCVAR_DECLARE(bool, pacman_random_mazes);
-void RandomMazesSetup(const std::filesystem::path& game_data_root);
+// Random Championship maze order (random_mazes.cpp): R3 on the title screen, --pacman_random_mazes.
+void RandomMazesSetup();
 // Graphics API of the GPU plugin: vulkan (default), d3d12 or any (see OnPreSetup).
 REXCVAR_DECLARE(std::string, pacman_gpu_backend);
 
@@ -62,22 +60,9 @@ class PacmanApp : public rex::ReXApp {
     const auto exe_dir = rex::filesystem::GetExecutableFolder();
     if (paths.game_data_root.empty())
       paths.game_data_root = FindGameData(exe_dir);
-    game_data_root_ = paths.game_data_root;
     UsePortableUserData(exe_dir, paths);
-
-    // Random maze order plays on its own save data (high scores, achievements) so it never touches the normal
-    // scores. Decided here, once, for both: only the command line is parsed this early (a config-file value is
-    // read later and is ignored for that reason).
-    random_mazes_ = REXCVAR_GET(pacman_random_mazes);
-    if (random_mazes_) {
-      paths.user_data_root /= "random-mazes";
-      std::error_code error;
-      std::filesystem::create_directories(paths.user_data_root, error);
-    }
   }
 
-  std::filesystem::path game_data_root_;
-  bool random_mazes_ = false;
 
   // Game data, first match: game\ next to the exe (the portable layout), the exe's own folder, or the
   // nearest private\ searching up from the exe (the repo layout, with the build in rexglue\out\build\<preset>\).
@@ -122,8 +107,7 @@ class PacmanApp : public rex::ReXApp {
   // The plugin is loaded here rather than by ReXApp right after this hook, so its settings (the render
   // resolution) exist and can be given defaults before the GPU is set up.
   void OnPreSetup(rex::RuntimeConfig& config) override {
-    if (random_mazes_)
-      RandomMazesSetup(game_data_root_);  // before the game loads its data files
+    RandomMazesSetup();
     if (config.gpu_plugin.empty())
       config.gpu_plugin = "xenos";
     if (!config.graphics) {
@@ -226,7 +210,7 @@ class PacmanApp : public rex::ReXApp {
         {"keybind_lstick_left", ""},     {"keybind_lstick_right", ""},
         {"keybind_lstick_press", ""},    {"keybind_rstick_up", ""},
         {"keybind_rstick_down", ""},     {"keybind_rstick_left", ""},
-        {"keybind_rstick_right", ""},    {"keybind_rstick_press", ""},
+        {"keybind_rstick_right", ""},    {"keybind_rstick_press", "R"},
         {"keybind_guide", ""},
     };
     if (rex::cvar::GetFlagSource("mnk_mode") == rex::cvar::Source::kDefault)

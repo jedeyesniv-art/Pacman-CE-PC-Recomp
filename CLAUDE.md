@@ -70,7 +70,7 @@ can't be told apart from "not set"):
 - keyboard controls (ApplyKeyboardControls): the SDK's MnkInputDriver (always created, off unless mnk_mode) is
   turned on; it is a synthetic device merged into guest user 0 with any real pad. Binds = comma lists of key
   names with exact modifier matching. Set: D-pad = Up,W / Down,S / Left,A / Right,D; A = Space,Return;
-  B = Escape; Start = P; every other keybind_* cleared (SDK defaults put arrows on the right stick, Shift+arrows
+  B = Escape; Start = P; right stick click (random mazes toggle) = R; every other keybind_* cleared (SDK defaults put arrows on the right stick, Shift+arrows
   on the D-pad, etc.). Only binds still at their default are set. SDK source: src/input/mnk/mnk_input_driver.cpp.
 - present_letterbox = true: any window/screen shape keeps the 16:9 image unstretched, with black bars.
 - fullscreen = true (unless set elsewhere). F11 / Alt+Enter toggle it (PacmanApp::OnKeyDown; the SDK has no
@@ -267,20 +267,46 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
 
 ## Game data / mods
 - data\gamedata.bin, gamedata1-9.bin, gamedata_oka.bin are Shift-JIS CSVs (Japanese label, key, values; maps as
-  61x33 grids). sub_82136D30 loads all 11 at startup into a table (index 0 = gamedata.bin, 1-9, 10 = _oka);
-  the active one hangs off the global 0x821F4C60 (+0xC +0x14: sections, +0x18 next; rows keyed at +0x30) and
-  settings are looked up by key (sub_82140160 / sub_821402a8, e.g. "dualmap" at 0x821419F4). Mode -> file in
-  menu order: Championship = gamedata1 (timemax 300), Challenge 1/2 = 2/3, Extra 1-3 = 4-6.
-- Stage lists: rows "ステージN（開始、終了グリッド）,m_i_mapXX,a,b", read by position; gamedata1 has two identical
-  22-row lists (likely left/right half, dualmap = 1) using 11 mazes (00, 01-03, 11-13, 21-23, 30), then a
-  "m_,25,37" row (the centre divider columns).
-- Random maze order (src\random_mazes.cpp, --pacman_random_mazes, off by default; random-mazes.bat in the play
-  folder): at launch reads gamedata1.bin, keeps row 1 of each stage list and shuffles the rest as whole lines
-  (same length), and serves that through SDK patch 0007 (rex::filesystem::SetFileReadFilter, called after
-  every host file read). Logs both orders. Per launch only (the game reads its data once).
-  Random runs use separate save data: OnConfigurePaths appends random-mazes\ to the user data root (high
-  scores, settings, achievements; the shader cache stays shared), so normal scores are never touched. The
-  option is therefore command line only (a config-file value is read after the paths are set).
+  61x33 grids). sub_82136D30 loads all 11 raw files at startup (loader objects in a table at 0x821ED488); the
+  file of the mode being started is parsed into a tree whose root is stored at 0x821F4C60 (null until a mode
+  starts; the attract demo starts modes too). Tree entries: +0x0C parent, +0x14 first child, +0x18 next,
+  +0x20 child count (u16), +0x30 key string, +0xF0.. values as floats, +0xF8.. as ints. Settings are looked up
+  by key (sub_82140160 / sub_821402a8, e.g. "dualmap" at 0x821419F4). Mode -> file in menu order:
+  Championship = gamedata1 (timemax 300), Challenge 1/2 = 2/3, Extra 1-3 = 4-6.
+- The tree lives in the 0xE0000000+ heaps: read guest memory there with memory()->TranslateVirtual (that range
+  is mapped with an extra host offset; membase + address reads the wrong bytes).
+- Stage lists: rows "ステージN（開始、終了グリッド）,m_i_mapXX,a,b" become sections p_map_l.csv / p_map_m.csv /
+  p_map_r.csv (left half, centre divider, right half); children keyed by the maze name. Championship: 22 stages
+  per half, starting m_i_map00 01 02 03 11 (unique among the modes). The name is looked up as "<name>.csv" (an
+  embedded maze file; names appear nowhere in the exe); name and numbers drive different parts of a maze (owner
+  test: shuffling only one desyncs dots and walls). Stage counters per half: 0x821EDD80 + 0x6B82 / 0x6B84 / 0x6B86,
+  reset at run start in sub_8213F438. Lookups: sub_8213E948 (section, index) -> "<name>.csv"; sub_82140210 ->
+  its int value; both take index % child count.
+- Random maze order (src\random_mazes.cpp; owner's "secret bonus mode", 2026-10-21): R3 (keyboard R) on the
+  title screen toggles it; the logo and the menu's selection highlight turn red while on. --pacman_random_mazes
+  turns it on at launch. A run is random if the toggle was on at its start (StageRunStartHook); then for
+  Championship only, each half gets its own permutation of stages 2..N (stage 1 stays), new every run, applied to
+  the index in both lookups (hooks on their divwu: 0x8213E974, 0x82140240), so stages stay whole.
+  No high scores in random runs (owner's choice): the game keeps its own copy of the save data (savegame.bin:
+  word 0 checksum-like, word 1 = Championship high score) and commits it with sub_820A8CE8(data, size) (copy into
+  the live buffer at *0x821EB084, then sub_820A9758 saves if it differs from the last saved copy *0x821EB088;
+  sub_820A93E8 writes the file, sub_820A92D8 reads it). SaveCommitHook skips the commit during a random run, and
+  when the logo is drawn again the game's copy is restored from the live buffer.
+  Title screen detection and tint: the UI layer draws with pixel shader F8BB1F8E90AB7819 (texture x pixel c1);
+  the logo is a 1042x327 texture, the selection highlight 400x61. SDK patch 0008 (rex::graphics::
+  SetDrawRegisterFilter) lets the app give one draw temporary register writes (pixel c1 = register 0x4404);
+  texture fetch constant 0 = registers 0x4800-0x4805 (size in dword 2). Title keystroke reads go through
+  autodemo.cpp's hook on XamInputGetKeystrokeEx (0x820C984C), which forwards every read to RandomMazesKeystroke.
+  The logo animates off screen now and then (the highlight stays), hence both count for R3.
+  (The first version shuffled the stage rows in gamedata1.bin at launch through SDK patch 0007, the file read
+  filter; still in the SDK, unused.)
+- Sprite colour paths (found while looking for a menu tint): sprite draw sub_8213AD30 copies the sprite's RGBA
+  (+0x48..+0x54) via r1+0xB0 to vertex constant c8 (device+0x780; vertex constants start at device+0x700) - maze
+  neon lines; sub_8213B718 (job workers, every frame) bakes the colour into each sprite's 4 vertices (stride 0x20)
+  via r1+0x50. The title/menu UI is neither: it is the UI layer above.
+- Testing without the owner's screen: --pacman_autodemo_keys=11:RS,14:A,... scripts pad presses (seconds after
+  launch); capture only the game window with PrintWindow (PW_RENDERFULLCONTENT, DPI-aware process) at
+  --resolution_scale=1 - never CopyFromScreen. Title menu: A at ~13 s reaches the mode select (Championship first).
 - The "Pac-Man build <date> <time>" log line is main.cpp's compile time (__DATE__/__TIME__), so it only changes
   when main.cpp or pacman_app.h recompile - not a reliable build ID.
 - Re-applying the patch to a fresh SDK clone: git -C tools\rexglue-sdk-src am ..\..\patches\rexglue-sdk\*.patch

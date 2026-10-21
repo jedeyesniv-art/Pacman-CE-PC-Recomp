@@ -1,7 +1,7 @@
 From dbcf41b5b6803e32b8715666aa7354fad35b3d31 Mon Sep 17 00:00:00 2001
 From: John <326213404+jedeyesniv-art@users.noreply.github.com>
 Date: Wed, 21 Oct 2026 15:07:46 +0100
-Subject: [PATCH 5/7] SDL input: cache each pad's joystick instance id
+Subject: [PATCH 5/8] SDL input: cache each pad's joystick instance id
 
 Draining queued SDL events looked up the pad for every event with
 SDL_GetGamepadJoystick/SDL_GetJoystickID, which take SDL's joystick lock - held

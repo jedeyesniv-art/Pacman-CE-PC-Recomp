@@ -64,8 +64,6 @@ foreach ($f in $crtFiles) { Copy-Item (Join-Path $crt.FullName $f) $dist }
 Copy-Item (Join-Path $project "README-portable.txt") (Join-Path $dist "README.txt")
 # Double-click launcher for a frame-pacing trace session (frame trace + sampling profiler -> pacman-trace.log).
 Copy-Item (Join-Path $project "trace-session.bat") $dist
-# Double-click launcher: Championship mode with a random maze order (--pacman_random_mazes).
-Copy-Item (Join-Path $project "random-mazes.bat") $dist
 # Licences: our notices (rexglue\licenses: overview, ReXGlue, disruptorplus) plus the licence texts of every
 # third-party library linked into the binaries, from the SDK source tree they were built from. Keep this list in
 # step with rexglue\licenses\THIRD-PARTY-NOTICES.txt.
