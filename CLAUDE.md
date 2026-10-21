@@ -167,6 +167,15 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   ExTerminateThread (info: normal thread end), RtlRaiseException (call sites hooked in pacman_config.toml),
   "game main thread ended (...)" and any unhandled host exception with a module+offset stack. The 4
   KeBugCheckEx sites in D3D are a debug "wrong CPU" check (bugcheck 0xF4 if device+0x14 bit 13 is set).
+- SOLVED: those exits were the profiler, not the game. The next log (diagnostics on) showed three unhandled
+  access violations, all on the "Pac-Man profiler" thread in RtlVirtualUnwind (profiler.cpp Unwind): under Wine
+  a thread suspended mid exception dispatch can have an unwalkable stack. Each kills the process ("Execution
+  complete" follows because the guest main thread is torn down). Unwind now runs under __try/__except
+  (UnwindGuarded, cut-short walks are counted in the report), and the Deck folder's pacman.toml no longer turns
+  the profiler on. The profiler (500 suspends/s of 3 threads, slow under Wine) is the likely cause of the
+  owner's "random sub-second dips" too - check that in the next Deck run.
+- The "Pac-Man build <date> <time>" log line is main.cpp's compile time (__DATE__/__TIME__), so it only changes
+  when main.cpp or pacman_app.h recompile - not a reliable build ID.
 - Re-applying the patch to a fresh SDK clone: git -C tools\rexglue-sdk-src am ..\..\patches\rexglue-sdk\*.patch
   (plus the libmspack symlink fix). The win-amd64-release-vk build dir only re-copies SDK DLLs when pacman.exe
   relinks - after an SDK-only change copy rexgpu-xenos.dll / rexruntime.dll in by hand (or touch a source).
