@@ -5,7 +5,8 @@
 // the maze for each stage, and the game reads them by position after loading all gamedata files at startup.
 // At launch the file is read here, every list keeps its first row (the opening maze) and has the rest shuffled
 // as whole lines, and the SDK's file read filter (patch 0007) hands the game that version. Same length, same rows,
-// new order each launch; the file on disk is never changed.
+// new order each launch; the file on disk is never changed. Random runs use their own save data
+// (userdata\random-mazes, set in pacman_app.h), so their scores stay separate from normal play.
 
 #include <rex/cvar.h>
 #include <rex/filesystem/entry.h>
@@ -25,7 +26,8 @@
 #include <vector>
 
 REXCVAR_DEFINE_BOOL(pacman_random_mazes, false, "Pac-Man",
-                    "Shuffle Championship mode's maze order at each launch (the first maze stays)");
+                    "Shuffle Championship mode's maze order at each launch (the first maze stays); uses separate "
+                    "save data (userdata\\random-mazes). Command line only");
 
 namespace {
 
@@ -70,10 +72,9 @@ std::string MapName(const std::string& line) {
 
 }  // namespace
 
-// Called at startup (pacman_app.h) with the game data folder. Logs what it did.
+// Called at startup (pacman_app.h, only when random mazes are on - decided together with the separate save
+// folder) with the game data folder. Logs what it did.
 void RandomMazesSetup(const std::filesystem::path& game_data_root) {
-  if (!REXCVAR_GET(pacman_random_mazes))
-    return;
   std::ifstream in(game_data_root / "data" / std::string(ChampionshipFile), std::ios::binary);
   if (!in) {
     REXLOG_WARN("random mazes: can't read data\\{}", ChampionshipFile);

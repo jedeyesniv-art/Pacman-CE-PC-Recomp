@@ -278,6 +278,9 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   folder): at launch reads gamedata1.bin, keeps row 1 of each stage list and shuffles the rest as whole lines
   (same length), and serves that through SDK patch 0007 (rex::filesystem::SetFileReadFilter, called after
   every host file read). Logs both orders. Per launch only (the game reads its data once).
+  Random runs use separate save data: OnConfigurePaths appends random-mazes\ to the user data root (high
+  scores, settings, achievements; the shader cache stays shared), so normal scores are never touched. The
+  option is therefore command line only (a config-file value is read after the paths are set).
 - The "Pac-Man build <date> <time>" log line is main.cpp's compile time (__DATE__/__TIME__), so it only changes
   when main.cpp or pacman_app.h recompile - not a reliable build ID.
 - Re-applying the patch to a fresh SDK clone: git -C tools\rexglue-sdk-src am ..\..\patches\rexglue-sdk\*.patch
