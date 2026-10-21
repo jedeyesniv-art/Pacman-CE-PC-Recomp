@@ -189,12 +189,21 @@ class PacmanApp : public rex::ReXApp {
       rt->input_system()->Shutdown();
   }
 
+  // The game doesn't use the mouse, so hide the cursor over the window. It comes back while the mouse moves
+  // (for dragging the window or reaching the close button) and hides again after a short idle time.
+  // Called on the UI thread once the window exists.
+  void OnCreateDialogs(rex::ui::ImGuiDrawer*) override {
+    if (window() == nullptr)
+      return;
+    window()->SetCursorAutoHideDelayMs(1500);
+    window()->SetCursorVisibility(rex::ui::Window::CursorVisibility::kAutoHidden);
+  }
+
   std::chrono::steady_clock::time_point last_fullscreen_toggle_{};
 
   // void OnLoadXexImage(std::string& xex_image) override {}
   // void OnPostLoadXexImage() override {}
   // void OnPostSetup() override {}
-  // void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {}
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
   // CreateAchievementNotificationDialog() override;

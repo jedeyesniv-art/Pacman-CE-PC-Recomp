@@ -58,6 +58,8 @@ can't be told apart from "not set"):
   GetFlagSource). These cvars live in rexgpu-xenos.dll and only exist once it is loaded, so OnPreSetup loads
   the plugin itself (ReXApp skips loading when config.graphics is set) and sets them with SetFlagByName;
   REXCVAR_DECLARE on them fails to link.
+- mouse cursor: auto-hidden over the window (Window::CursorVisibility::kAutoHidden, set in OnCreateDialogs, the
+  first hook after the window exists); shows while the mouse moves, hides after 1.5 s idle.
 - present_letterbox = true: any window/screen shape keeps the 16:9 image unstretched, with black bars.
 - fullscreen = true (unless set elsewhere). F11 / Alt+Enter toggle it (PacmanApp::OnKeyDown; the SDK has no
   key for it). SDL's KeyEvent always has repeat_count 1 (auto-repeat is prev_state), and a mode switch makes
