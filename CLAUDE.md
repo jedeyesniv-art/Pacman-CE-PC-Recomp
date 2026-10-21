@@ -58,6 +58,13 @@ can't be told apart from "not set"):
   StfsContainerDevice; ReXApp skips its on-disk default.xex check then). The owner's XBLA dump is
   private\stfs\E7FEF86C... (LIVE, content type 000D0000); tested 2026-10-21: boots, menus, attract demo, and
   found automatically in game\58410877\000D0000\.
+- startup checks (src\game_files.cpp, PacmanApp::SetupEnvironment after the base class, so logging works):
+  CheckGameData gives a player-facing message box (MessageBoxW, titled with the game name) and a clean exit when
+  no game data was found, or it is another game (XEX2 execution info 0x00040006 title ID, or STFS title ID at
+  0x360; a stray package of another game in game\ is named). BackupSaves copies userdata (minus cache\,
+  save-backups\, logs\) to userdata\save-backups\<date_time>\ when it differs from the newest backup;
+  keeps 10. Window title "Pac-Man Championship Edition (PC port <version>)" set in OnCreateDialogs; version =
+  CMake project VERSION (PACMAN_VERSION, 1.0.0), also in the startup log line.
 - user data + shader cache: userdata\ next to the exe; falls back to the SDK default Documents\pacman when
   that can't be created (e.g. Program Files)
 - GPU: gpu_plugin = "xenos" (the SDK default is no GPU emulation; CMakeLists passes GPU_PLUGINS xenos so

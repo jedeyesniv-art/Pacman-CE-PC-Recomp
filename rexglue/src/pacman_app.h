@@ -39,6 +39,10 @@ REXCVAR_DECLARE(bool, present_letterbox);
 void ProfilerNoteUiThread();
 // Random Championship maze order (random_mazes.cpp): R3 on the title screen, --pacman_random_mazes.
 void RandomMazesSetup();
+// Startup checks for players (game_files.cpp).
+std::string CheckGameData(const std::filesystem::path& root, const std::filesystem::path& game_dir);
+void ShowGameDataError(const std::string& message);
+void BackupSaves(const std::filesystem::path& user_data);
 // Graphics API of the GPU plugin: vulkan (default), d3d12 or any (see OnPreSetup).
 REXCVAR_DECLARE(std::string, pacman_gpu_backend);
 
@@ -63,7 +67,27 @@ class PacmanApp : public rex::ReXApp {
     if (paths.game_data_root.empty())
       paths.game_data_root = FindGameData(exe_dir);
     UsePortableUserData(exe_dir, paths);
+    game_data_root_found_ = paths.game_data_root;
+    game_dir_ = exe_dir / "game";
+    user_data_dir_ = paths.user_data_root;
   }
+
+  // After the base class has set up paths and logging, before anything else starts: tell the player clearly when
+  // the game files are missing or belong to another game (instead of a cryptic failure later), and back up the
+  // save data.
+  bool SetupEnvironment() override {
+    if (!ReXApp::SetupEnvironment())
+      return false;
+    if (const std::string problem = CheckGameData(game_data_root_found_, game_dir_); !problem.empty()) {
+      REXLOG_ERROR("game data: {}", problem);
+      ShowGameDataError(problem);
+      return false;
+    }
+    BackupSaves(user_data_dir_);
+    return true;
+  }
+
+  std::filesystem::path game_data_root_found_, game_dir_, user_data_dir_;
 
 
   // Game data, first match: game\ next to the exe (the portable layout) holding the unpacked files or the game's
@@ -196,7 +220,7 @@ class PacmanApp : public rex::ReXApp {
   // default, an explicit 0 can't be told apart from "not set", so trial mode can't be forced this way.)
   void OnPostInitLogging() override {
     ProfilerNoteUiThread();
-    REXLOG_INFO("Pac-Man build {} {}; profiler {}", __DATE__, __TIME__,
+    REXLOG_INFO("Pac-Man " PACMAN_VERSION " build {} {}; profiler {}", __DATE__, __TIME__,
                 rex::cvar::GetFlagByName("pacman_profile") == "true" ? "on" : "off");
 
     // Present like Xenia does: from the guest output thread, once per guest frame. When the presenter paints on
@@ -330,6 +354,7 @@ class PacmanApp : public rex::ReXApp {
   void OnCreateDialogs(rex::ui::ImGuiDrawer*) override {
     if (window() == nullptr)
       return;
+    window()->SetTitle("Pac-Man Championship Edition (PC port " PACMAN_VERSION ")");  // instead of the SDK stamp
     window()->SetCursorAutoHideDelayMs(1500);
     window()->SetCursorVisibility(rex::ui::Window::CursorVisibility::kAutoHidden);
   }

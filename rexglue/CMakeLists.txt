@@ -3,7 +3,7 @@
 # SDK boilerplate lives in generated/rexglue.cmake.
 
 cmake_minimum_required(VERSION 3.25)
-project(pacman LANGUAGES CXX RC)
+project(pacman VERSION 1.0.0 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -21,6 +21,7 @@ set(PACMAN_SOURCES
     src/texture_release.cpp
     src/autodemo.cpp
     src/random_mazes.cpp
+    src/game_files.cpp
 )
 if(WIN32)
     # Exe icon: pacman.ico, an original design drawn by ../Tools/make_icon.py (no game artwork).
@@ -36,6 +37,7 @@ else()
 endif()
 
 rexglue_setup_target(pacman GPU_PLUGINS xenos)
+target_compile_definitions(pacman PRIVATE PACMAN_VERSION="${PROJECT_VERSION}")
 
 # CPU level for the recompiled game code. x86-64-v3 (AVX2 generation: Haswell / Zen and later, incl. the Steam
 # Deck) brings MOVBE (the big-endian loads/stores everywhere), BMI2 (shifts/rotates) and hardware FMA (the

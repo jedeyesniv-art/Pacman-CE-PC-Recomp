@@ -1,5 +1,5 @@
-Pac-Man Championship Edition - native PC build
-==============================================
+Pac-Man Championship Edition - native PC build, version 1.0.0
+=============================================================
 
 Setup
   Put your own copy of the game in the game\ folder, either way:
@@ -12,6 +12,8 @@ Files
   pacman.exe, *.dll   the game and its runtime (Visual C++ runtime included)
   game\               your game files (not included)
   userdata\           created on first run: saves and the shader cache. Delete it to start fresh.
+  userdata\save-backups\  automatic copies of your saves, made at startup whenever they changed (the
+                      newest 10 are kept). To restore one, copy its contents back into userdata\.
   pacman.toml         optional ReXGlue settings file, read at startup if present (not created automatically)
   licenses\           licences: this port (MIT-0) and the third-party software it uses
                       (start with THIRD-PARTY-NOTICES.txt)
