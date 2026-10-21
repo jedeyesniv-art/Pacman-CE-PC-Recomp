@@ -34,3 +34,13 @@ else()
 endif()
 
 rexglue_setup_target(pacman GPU_PLUGINS xenos)
+
+# CPU level for the recompiled game code. x86-64-v3 (AVX2 generation: Haswell / Zen and later, incl. the Steam
+# Deck) brings MOVBE (the big-endian loads/stores everywhere), BMI2 (shifts/rotates) and hardware FMA (the
+# game's 1300+ std::fma calls for PowerPC fmadd, exact either way). -ffp-contract=off keeps the compiler from
+# fusing separate multiplies and adds on its own, so floating-point results stay those of the Xbox.
+# Set PACMAN_CPU_LEVEL=x86-64-v2 for a build that runs on older CPUs.
+set(PACMAN_CPU_LEVEL "x86-64-v3" CACHE STRING "-march level for the recompiled game code")
+if(TARGET pacman_recomp)
+    target_compile_options(pacman_recomp PRIVATE -march=${PACMAN_CPU_LEVEL} -ffp-contract=off)
+endif()
