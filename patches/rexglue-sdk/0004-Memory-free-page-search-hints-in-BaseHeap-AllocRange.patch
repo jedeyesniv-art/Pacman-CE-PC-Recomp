@@ -1,4 +1,4 @@
-From 86b35eec61c84e2ea92661c9343a79cf27407718 Mon Sep 17 00:00:00 2001
+From 8c52244a08e675a7034fba39f55410da94df8511 Mon Sep 17 00:00:00 2001
 From: John <326213404+jedeyesniv-art@users.noreply.github.com>
 Date: Wed, 21 Oct 2026 14:57:27 +0100
 Subject: [PATCH 4/9] Memory: free-page search hints in BaseHeap::AllocRange

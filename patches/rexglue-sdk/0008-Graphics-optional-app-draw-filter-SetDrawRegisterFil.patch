@@ -1,4 +1,4 @@
-From 96d986dccded0086c615e7df35db0fbf90c59be4 Mon Sep 17 00:00:00 2001
+From 9782b9cd89739e697fe21017477c4a8d8a61ffe6 Mon Sep 17 00:00:00 2001
 From: John <326213404+jedeyesniv-art@users.noreply.github.com>
 Date: Wed, 21 Oct 2026 20:18:26 +0100
 Subject: [PATCH 8/9] Graphics: optional app draw filter

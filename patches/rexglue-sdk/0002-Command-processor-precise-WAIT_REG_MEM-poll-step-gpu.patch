@@ -1,4 +1,4 @@
-From a7d4c7b96b5de359d5c16f5dfc67ccc9ca1fb382 Mon Sep 17 00:00:00 2001
+From 61831d93f52d23125584097cb17bf8028ab5b5e3 Mon Sep 17 00:00:00 2001
 From: John <326213404+jedeyesniv-art@users.noreply.github.com>
 Date: Wed, 21 Oct 2026 13:22:38 +0100
 Subject: [PATCH 2/9] Command processor: precise WAIT_REG_MEM poll step

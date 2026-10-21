@@ -1,4 +1,4 @@
-From 02d041364b4596ee8bf74c82f31f1b8c614048ef Mon Sep 17 00:00:00 2001
+From 73c34732a9507e6efa3a514c9dc681d32b055376 Mon Sep 17 00:00:00 2001
 From: John <326213404+jedeyesniv-art@users.noreply.github.com>
 Date: Wed, 21 Oct 2026 14:57:27 +0100
 Subject: [PATCH 3/9] Input: re-enumerate devices at most every
