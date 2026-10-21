@@ -1,0 +1,66 @@
+From dbcf41b5b6803e32b8715666aa7354fad35b3d31 Mon Sep 17 00:00:00 2001
+From: John <326213404+jedeyesniv-art@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 15:07:46 +0100
+Subject: [PATCH 5/5] SDL input: cache each pad's joystick instance id
+
+Draining queued SDL events looked up the pad for every event with
+SDL_GetGamepadJoystick/SDL_GetJoystickID, which take SDL's joystick lock - held
+by the UI thread while it pumps events. With the stick moving that is many
+lock round trips per frame on the game thread. The id is fixed while the pad is
+connected, so it is now stored when the pad is added (checked against SDL).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ include/rex/input/sdl/sdl_input_driver.h |  3 +++
+ src/input/sdl/sdl_input_driver.cpp       | 14 ++++++++------
+ 2 files changed, 11 insertions(+), 6 deletions(-)
+
+diff --git a/include/rex/input/sdl/sdl_input_driver.h b/include/rex/input/sdl/sdl_input_driver.h
+index be1f9b8..d83c8d4 100644
+--- a/include/rex/input/sdl/sdl_input_driver.h
++++ b/include/rex/input/sdl/sdl_input_driver.h
+@@ -60,6 +60,9 @@ class SDLInputDriver final : public InputDriver, public rex::ui::WindowListener
+ 
+   struct ControllerState {
+     SDL_Gamepad* sdl;
++    // Fixed while the pad is connected; cached so that matching events to pads takes no SDL calls (they
++    // take the joystick lock, which the UI thread holds while it pumps events).
++    SDL_JoystickID instance_id;
+     X_INPUT_CAPABILITIES caps;
+     X_INPUT_STATE state;
+     bool state_changed;
+diff --git a/src/input/sdl/sdl_input_driver.cpp b/src/input/sdl/sdl_input_driver.cpp
+index 57f65c4..a8331ea 100644
+--- a/src/input/sdl/sdl_input_driver.cpp
++++ b/src/input/sdl/sdl_input_driver.cpp
+@@ -616,6 +616,13 @@ void SDLInputDriver::OnControllerDeviceAddedLocked(const SDL_Event& event) {
+   // order and leaves non-XInput pads unnumbered.
+   ControllerState state = {};
+   state.sdl = controller;
++  state.instance_id = event.gdevice.which;
++  if (const SDL_JoystickID opened_id = SDL_GetJoystickID(SDL_GetGamepadJoystick(controller));
++      opened_id != state.instance_id) {
++    REXLOG_WARN("SDL OnControllerDeviceAdded: instance id {} differs from the event's {}, using it", opened_id,
++                state.instance_id);
++    state.instance_id = opened_id;
++  }
+   state.id = AllocateDeviceId();
+   state.state_changed = true;  // XInput starts with packet_number = 1
+   UpdateXCapabilities(state);
+@@ -756,12 +763,7 @@ void SDLInputDriver::OnControllerDeviceButtonChangedLocked(const SDL_Event& even
+ std::optional<size_t> SDLInputDriver::GetControllerIndexFromInstanceID(SDL_JoystickID instance_id) {
+   // Loop through our controllers and try to match the given ID.
+   for (size_t i = 0; i < controllers_.size(); i++) {
+-    auto controller = controllers_.at(i).sdl;
+-    auto joystick = SDL_GetGamepadJoystick(controller);
+-    assert(joystick);
+-    auto joy_instance_id = SDL_GetJoystickID(joystick);
+-    assert(joy_instance_id >= 0);
+-    if (joy_instance_id == instance_id) {
++    if (controllers_.at(i).instance_id == instance_id) {
+       return i;
+     }
+   }
+-- 
+2.55.0.windows.5
+

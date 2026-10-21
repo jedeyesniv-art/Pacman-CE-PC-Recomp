@@ -230,6 +230,10 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   BaseHeap::AllocRange linear page-table scans (MmAllocatePhysicalMemoryEx). SDK patches 0003 (device refresh at
   most every input_device_refresh_ms = 250; capture post only on change) and 0004 (free-page hints in
   AllocRange) fix the last two: in a re-check the AllocRange scan vanished and input fell to ~4% of gap samples.
+  Second gameplay trace (after 0003/0004): 62 slow frames in ~5 min, half the 10 s windows clean. Gap samples:
+  23% job dispatcher spin, ~8% SDL joystick lock taken while draining queued axis-motion events
+  (GetControllerIndexFromInstanceID called SDL per event) -> SDK patch 0005 caches each pad's instance id
+  (checked against SDL when the pad is added); ~3% ObjectTable::LookupObject lock in XNotifyGetNext (left).
   Not yet done (owner's list): lighter lwsync/sync fences, -march=x86-64-v3 / PGO for game code, sampling the
   job workers, native CRT routines, presentation buffer (last resort).
 - The "Pac-Man build <date> <time>" log line is main.cpp's compile time (__DATE__/__TIME__), so it only changes

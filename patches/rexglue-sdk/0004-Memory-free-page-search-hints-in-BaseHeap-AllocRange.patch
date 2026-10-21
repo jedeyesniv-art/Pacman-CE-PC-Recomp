@@ -1,7 +1,7 @@
 From 86b35eec61c84e2ea92661c9343a79cf27407718 Mon Sep 17 00:00:00 2001
 From: John <326213404+jedeyesniv-art@users.noreply.github.com>
 Date: Wed, 21 Oct 2026 14:57:27 +0100
-Subject: [PATCH 4/4] Memory: free-page search hints in BaseHeap::AllocRange
+Subject: [PATCH 4/5] Memory: free-page search hints in BaseHeap::AllocRange
 
 AllocRange walked the page table from the bottom (or top) of the range on every
 allocation, past all pages in use. Keep a low and a high hint (all pages beyond
