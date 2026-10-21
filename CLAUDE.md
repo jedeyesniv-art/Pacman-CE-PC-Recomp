@@ -148,6 +148,21 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   On Windows the Vulkan backend renders correctly (screenshots matched D3D12 at 1x and 3x), 60 fps, similar
   CPU; it logs "Vulkan draw resolution scaling is experimental". Imports unchanged (vulkan-1.dll loaded at
   runtime). Before a public release: add licences for glslang, SPIRV-Tools, VMA, Vulkan headers.
+- Deck result with Vulkan: largely unchanged. Profile (--pacman_profile, same session): GPU Commands ~45% in
+  memory::Protect (PhysicalHeap::EnableAccessCallbacks from SharedMemory::MakeRangeValid) + RequestRanges,
+  ~34% sleeping in ExecutePacketType3_WAIT_REG_MEM; main thread ~50% waiting for the GPU, ~15% in access-fault
+  handling (MMIOHandler::ExceptionCallback, Protect). Cause: the game writes per-draw vertex data into a ring
+  just ahead of the command processor, so the same pages ping-pong upload -> protect -> fault -> upload; on
+  Wine every protect and fault is slow. Grows with sprites on screen.
+- Fix: SDK patch patches\rexglue-sdk\0001-* (branch "pacman" in tools\rexglue-sdk-src, on bd833a2a):
+  shared_memory_streaming_blocks - a 64-page block invalidated 8+ times in 1 s is left unprotected and never
+  valid (re-uploaded on every request); not for blocks with texture watches, GPU-written data or global
+  watches (scaled resolve); WatchMemoryRange un-streams and re-protects; marks reset every 10 s. PC, Vulkan
+  1x attract: faults 14-25 -> 4 per frame, picture correct. App (ApplyWineDefaults in pacman_app.h): under
+  Wine turns it on plus pacman_fast_gpu_handshake. Awaiting a Deck test.
+- Re-applying the patch to a fresh SDK clone: git -C tools\rexglue-sdk-src am ..\..\patches\rexglue-sdk\*.patch
+  (plus the libmspack symlink fix). The win-amd64-release-vk build dir only re-copies SDK DLLs when pacman.exe
+  relinks - after an SDK-only change copy rexgpu-xenos.dll / rexruntime.dll in by hand (or touch a source).
 
 ## Known issues
 - (Resolved, see above) Game-logic slowdown in places (owner, 2026-10-20 portable build): presented frame rate stays constant,

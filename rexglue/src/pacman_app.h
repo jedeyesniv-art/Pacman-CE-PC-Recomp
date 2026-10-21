@@ -114,7 +114,26 @@ class PacmanApp : public rex::ReXApp {
       }
       if (config.graphics)
         ApplyDesktopResolutionScale();
+      if (config.graphics && RunningUnderWine())
+        ApplyWineDefaults();
     }
+  }
+
+  // Under Wine/Proton (Steam Deck) access violations and memory protection changes are very slow, and so are
+  // short sleeps; a profile on the Deck (2026-10-21) showed the GPU thread spending ~45% of its time re-protecting
+  // memory the game keeps rewriting (per-draw vertex data) and ~34% napping in D3D's per-frame handshake.
+  // shared_memory_streaming_blocks (our SDK patch, patches\rexglue-sdk) stops protecting such blocks;
+  // pacman_fast_gpu_handshake makes the handshake poll. Settings given on the command line or in the config
+  // file win. The plugin cvar only exists in a plugin built from our patched SDK.
+  static void ApplyWineDefaults() {
+    if (rex::cvar::GetFlagSource("shared_memory_streaming_blocks") == rex::cvar::Source::kDefault &&
+        !rex::cvar::SetFlagByName("shared_memory_streaming_blocks", "true"))
+      REXLOG_INFO("Wine defaults: this GPU plugin has no shared_memory_streaming_blocks");
+    if (rex::cvar::GetFlagSource("pacman_fast_gpu_handshake") == rex::cvar::Source::kDefault)
+      rex::cvar::SetFlagByName("pacman_fast_gpu_handshake", "true");
+    REXLOG_INFO("Wine defaults: shared_memory_streaming_blocks={} pacman_fast_gpu_handshake={}",
+                rex::cvar::GetFlagByName("shared_memory_streaming_blocks"),
+                rex::cvar::GetFlagByName("pacman_fast_gpu_handshake"));
   }
 
   // Wine (and so Proton) exports wine_get_version from its ntdll; Windows never does.

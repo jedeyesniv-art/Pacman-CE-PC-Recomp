@@ -1,0 +1,243 @@
+From 0cdea1ae09799e950a7a6eae161365f43711d0ad Mon Sep 17 00:00:00 2001
+From: John <326213404+jedeyesniv-art@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 11:44:26 +0100
+Subject: [PATCH] Shared memory: streaming blocks
+ (shared_memory_streaming_blocks)
+
+Blocks the CPU keeps rewriting right after each upload (e.g. a ring buffer of
+per-draw vertex data) cost an access violation plus a protection change per
+round trip, which is very slow under Wine/Proton. With the option on, a 64-page
+block invalidated 8+ times within a second is left unprotected and never marked
+valid, so every request re-uploads it. Blocks with texture watches, GPU-written
+data or global watches are excluded; marks are reset every 10 s.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ include/rex/graphics/shared_memory.h |  13 +++
+ src/graphics/shared_memory.cpp       | 129 ++++++++++++++++++++++++++-
+ 2 files changed, 139 insertions(+), 3 deletions(-)
+
+diff --git a/include/rex/graphics/shared_memory.h b/include/rex/graphics/shared_memory.h
+index 4d85a2b..53f0dba 100644
+--- a/include/rex/graphics/shared_memory.h
++++ b/include/rex/graphics/shared_memory.h
+@@ -176,6 +176,19 @@ class SharedMemory {
+   std::vector<uint64_t> system_page_flags_valid_and_gpu_written_;
+   uint32_t num_system_page_flags_ = 0;
+ 
++  // Streaming blocks (shared_memory_streaming_blocks): 64-page blocks, indexed like the page flags, that the
++  // CPU keeps rewriting right after the GPU took a copy, such as a ring buffer of per-draw vertex data. Each
++  // round trip costs an access violation and a protection change, which is very slow under Wine. Streaming
++  // blocks are left unprotected and never marked valid, so every request uploads them from guest memory again.
++  // Blocks with texture watches or GPU-written data are never streaming.
++  std::vector<uint8_t> block_streaming_;
++  std::vector<uint16_t> block_invalidations_;  // CPU invalidations in the current epoch
++  uint64_t streaming_epoch_start_ms_ = 0;
++  uint64_t streaming_reset_start_ms_ = 0;
++  uint32_t streaming_block_count_ = 0;
++  void UpdateStreamingEpoch();
++  bool IsBlockWatched(uint32_t block) const;
++
+   static std::pair<uint32_t, uint32_t> MemoryInvalidationCallbackThunk(
+       void* context_ptr, uint32_t physical_address_start, uint32_t length, bool exact_range);
+ 
+diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
+index ec0df7c..e0c0313 100644
+--- a/src/graphics/shared_memory.cpp
++++ b/src/graphics/shared_memory.cpp
+@@ -17,9 +17,33 @@
+ #include <rex/bit.h>
+ #include <rex/dbg.h>
+ #include <rex/graphics/shared_memory.h>
++#include <rex/cvar.h>
++#include <rex/logging.h>
+ #include <rex/math.h>
+ #include <rex/memory.h>
+ 
++#include <chrono>
++
++REXCVAR_DEFINE_BOOL(shared_memory_streaming_blocks, false, "GPU",
++                    "Stop write-protecting memory blocks the CPU keeps rewriting after each upload (e.g. per-draw "
++                    "vertex rings) and re-upload them on every use instead. Much faster where access violations "
++                    "and protection changes are expensive (Wine/Proton)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
++namespace {
++// A block invalidated by the CPU this many times within one epoch becomes streaming.
++constexpr uint16_t kStreamingInvalidationsPerEpoch = 8;
++constexpr uint64_t kStreamingEpochMs = 1000;
++// Streaming blocks are protected again after this long, in case their use changed.
++constexpr uint64_t kStreamingResetMs = 10000;
++
++uint64_t SteadyMilliseconds() {
++  return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
++                      std::chrono::steady_clock::now().time_since_epoch())
++                      .count());
++}
++}  // namespace
++
+ namespace rex::graphics {
+ 
+ SharedMemory::SharedMemory(memory::Memory& memory) : memory_(memory) {
+@@ -34,6 +58,8 @@ void SharedMemory::InitializeCommon() {
+   num_system_page_flags_ = ((kBufferSize >> page_size_log2_) + 63) / 64;
+   system_page_flags_valid_.assign(num_system_page_flags_, 0);
+   system_page_flags_valid_and_gpu_written_.assign(num_system_page_flags_, 0);
++  block_streaming_.assign(num_system_page_flags_, 0);
++  block_invalidations_.assign(num_system_page_flags_, 0);
+ 
+   memory_invalidation_callback_handle_ =
+       memory_.RegisterPhysicalMemoryInvalidationCallback(MemoryInvalidationCallbackThunk, this);
+@@ -86,6 +112,9 @@ void SharedMemory::ShutdownCommon() {
+   system_page_flags_valid_.shrink_to_fit();
+   system_page_flags_valid_and_gpu_written_.clear();
+   system_page_flags_valid_and_gpu_written_.shrink_to_fit();
++  block_streaming_.clear();
++  block_invalidations_.clear();
++  streaming_block_count_ = 0;
+   num_system_page_flags_ = 0;
+ }
+ 
+@@ -166,6 +195,24 @@ SharedMemory::WatchHandle SharedMemory::WatchMemoryRange(uint32_t start, uint32_
+   uint32_t bucket_first = watch_page_first << page_size_log2_ >> kWatchBucketSizeLog2;
+   uint32_t bucket_last = watch_page_last << page_size_log2_ >> kWatchBucketSizeLog2;
+ 
++  // Watched data in a streaming block (a texture): protect the block again so that CPU writes reach the watch.
++  // Textures are requested (uploaded) right before they are watched, so the range can be marked valid.
++  bool unstreamed = false;
++  {
++    auto streaming_lock = global_critical_region_.Acquire();
++    for (uint32_t block = watch_page_first >> 6; block <= watch_page_last >> 6; ++block) {
++      if (block_streaming_[block]) {
++        block_streaming_[block] = 0;
++        block_invalidations_[block] = 0;
++        --streaming_block_count_;
++        unstreamed = true;
++      }
++    }
++  }
++  if (unstreamed) {
++    MakeRangeValid(start, length, false);
++  }
++
+   auto global_lock = global_critical_region_.Acquire();
+ 
+   // Allocate the range.
+@@ -290,11 +337,29 @@ void SharedMemory::MakeRangeValid(uint32_t start, uint32_t length, bool written_
+   uint32_t valid_page_last = last >> page_size_log2_;
+   uint32_t valid_block_first = valid_page_first >> 6;
+   uint32_t valid_block_last = valid_page_last >> 6;
++  const bool streaming_enabled = REXCVAR_GET(shared_memory_streaming_blocks);
+ 
++  // Page runs (first, last) to protect: the whole range, minus streaming blocks.
++  thread_local std::vector<std::pair<uint32_t, uint32_t>> protect_runs;
++  protect_runs.clear();
+   {
+     auto global_lock = global_critical_region_.Acquire();
+ 
++    uint32_t run_first = UINT32_MAX;
+     for (uint32_t i = valid_block_first; i <= valid_block_last; ++i) {
++      if (block_streaming_[i] && (written_by_gpu || !streaming_enabled)) {
++        block_streaming_[i] = 0;
++        block_invalidations_[i] = 0;
++        --streaming_block_count_;
++      }
++      if (block_streaming_[i]) {
++        // Left invalid and unprotected, so it is uploaded again on every request.
++        if (run_first != UINT32_MAX) {
++          protect_runs.emplace_back(run_first, (i << 6) - 1);
++          run_first = UINT32_MAX;
++        }
++        continue;
++      }
+       uint64_t valid_bits = UINT64_MAX;
+       if (i == valid_block_first) {
+         valid_bits &= ~((uint64_t(1) << (valid_page_first & 63)) - 1);
+@@ -305,16 +370,54 @@ void SharedMemory::MakeRangeValid(uint32_t start, uint32_t length, bool written_
+       system_page_flags_valid_[i] |= valid_bits;
+       uint64_t& gpu_written = system_page_flags_valid_and_gpu_written_[i];
+       gpu_written = written_by_gpu ? (gpu_written | valid_bits) : (gpu_written & ~valid_bits);
++      if (run_first == UINT32_MAX) {
++        run_first = std::max(i << 6, valid_page_first);
++      }
++    }
++    if (run_first != UINT32_MAX) {
++      protect_runs.emplace_back(run_first, valid_page_last);
+     }
+   }
+ 
+   if (memory_invalidation_callback_handle_) {
+-    memory().EnablePhysicalMemoryAccessCallbacks(
+-        valid_page_first << page_size_log2_,
+-        (valid_page_last - valid_page_first + 1) << page_size_log2_, true, false);
++    for (const auto& [run_page_first, run_page_last] : protect_runs) {
++      memory().EnablePhysicalMemoryAccessCallbacks(
++          run_page_first << page_size_log2_, (run_page_last - run_page_first + 1) << page_size_log2_,
++          true, false);
++    }
+   }
+ }
+ 
++void SharedMemory::UpdateStreamingEpoch() {
++  const uint64_t now = SteadyMilliseconds();
++  if (now - streaming_epoch_start_ms_ >= kStreamingEpochMs) {
++    std::fill(block_invalidations_.begin(), block_invalidations_.end(), uint16_t(0));
++    streaming_epoch_start_ms_ = now;
++  }
++  if (now - streaming_reset_start_ms_ >= kStreamingResetMs) {
++    if (streaming_block_count_) {
++      REXLOG_DEBUG("Shared memory: protecting {} streaming blocks again", streaming_block_count_);
++      std::fill(block_streaming_.begin(), block_streaming_.end(), uint8_t(0));
++      streaming_block_count_ = 0;
++    }
++    streaming_reset_start_ms_ = now;
++  }
++}
++
++bool SharedMemory::IsBlockWatched(uint32_t block) const {
++  const uint32_t page_first = block << 6;
++  const uint32_t page_last = page_first + 63;
++  // A 64-page block never spans two watch buckets.
++  const uint32_t bucket = (page_first << page_size_log2_) >> kWatchBucketSizeLog2;
++  for (const WatchNode* node = watch_buckets_[bucket]; node != nullptr; node = node->bucket_node_next) {
++    const WatchRange* range = node->range;
++    if (page_first <= range->page_last && page_last >= range->page_first) {
++      return true;
++    }
++  }
++  return false;
++}
++
+ void SharedMemory::UnlinkWatchRange(WatchRange* range) {
+   uint32_t bucket = range->page_first << page_size_log2_ >> kWatchBucketSizeLog2;
+   WatchNode* node = range->node_first;
+@@ -494,6 +597,26 @@ std::pair<uint32_t, uint32_t> SharedMemory::MemoryInvalidationCallback(
+ 
+   auto global_lock = global_critical_region_.Acquire();
+ 
++  // Count CPU rewrites per block; a block rewritten again and again becomes streaming (see MakeRangeValid).
++  // Not with GPU-written data in it, texture watches on it, or global watches (scaled resolves), which all rely
++  // on seeing CPU writes.
++  if (REXCVAR_GET(shared_memory_streaming_blocks) && global_watches_.empty()) {
++    UpdateStreamingEpoch();
++    for (uint32_t block = block_first; block <= block_last; ++block) {
++      if (block_streaming_[block] || ++block_invalidations_[block] < kStreamingInvalidationsPerEpoch) {
++        continue;
++      }
++      block_invalidations_[block] = 0;
++      if (system_page_flags_valid_and_gpu_written_[block] || IsBlockWatched(block)) {
++        continue;
++      }
++      block_streaming_[block] = 1;
++      ++streaming_block_count_;
++      REXLOG_DEBUG("Shared memory: block at 0x{:08X} is streaming ({} blocks)",
++                   block << 6 << page_size_log2_, streaming_block_count_);
++    }
++  }
++
+   if (!exact_range) {
+     // Check if a somewhat wider range (up to 256 KB with 4 KB pages) can be
+     // invalidated - if no GPU-written data nearby that was not intended to be
+-- 
+2.55.0.windows.5
+
