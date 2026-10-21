@@ -99,6 +99,12 @@ address = 0x8206ED50
 name = "InterruptHook"
 registers = ["r3"]
 
+# Draw counter (src/frame_stats.cpp): entry of sub_820CB840, the draw the sprite routines end with
+# (sub_8213AB98 / sub_8213AD30 call it as (device, 6, 0, 4): one 4-vertex quad per call).
+[[midasm_hook]]
+address = 0x820CB840
+name = "DrawHook"
+
 # Frame-time monitor (src/frame_stats.cpp): the game's only VdSwap call (bl 0x821BAD0C), once per frame.
 [[midasm_hook]]
 address = 0x82067C64

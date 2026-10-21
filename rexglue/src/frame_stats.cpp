@@ -79,6 +79,12 @@ void BufferWaitEndHook() { EndWait(g_bufferWait, t_bufferWaitStart); }
 void FenceWaitBeginHook() { t_fenceWaitStart = std::chrono::steady_clock::now(); }
 void FenceWaitEndHook() { EndWait(g_fenceWait, t_fenceWaitStart); }
 
+// Draw calls (sub_820CB840), counted per frame by FrameHook.
+namespace {
+std::atomic<uint32_t> g_draws{0};
+}
+void DrawHook() { g_draws.fetch_add(1, std::memory_order_relaxed); }
+
 // Called by FrameHook at each VdSwap.
 void NoteSwap(std::chrono::steady_clock::time_point now) {
   std::lock_guard lock(g_vblankMutex);
@@ -246,6 +252,8 @@ struct Window {
   uint32_t frames = 0;
   uint32_t slowFrames = 0;
   double worstSeconds = 0;
+  uint64_t draws = 0;
+  uint32_t maxDraws = 0;
 };
 
 }  // namespace
@@ -279,6 +287,9 @@ void FrameHook() {
   if (frameSeconds > SlowFrameSeconds)
     window.slowFrames++;
   window.worstSeconds = std::max(window.worstSeconds, frameSeconds);
+  const uint32_t draws = g_draws.exchange(0, std::memory_order_relaxed);
+  window.draws += draws;
+  window.maxDraws = std::max(window.maxDraws, draws);
 
   if (now - window.start >= ReportInterval) {
     const double elapsed = std::chrono::duration<double>(now - window.start).count();
@@ -289,10 +300,11 @@ void FrameHook() {
     const double gpuWaitShare = (gpuWait - gpuWaitAtStart) / 1e9 / elapsed;
     gpuWaitAtStart = gpuWait;
     REXLOG_INFO("frames: {} in {:.1f} s ({:.1f} fps), {} over {:.0f} ms, worst {:.1f} ms; game behind by "
-                "{:.0f} ms this window, {:.1f} s total; {}; {}; main thread waiting on GPU {:.0f}%; "
-                "{}; busiest: {}",
+                "{:.0f} ms this window, {:.1f} s total; draws {:.0f} per frame (max {}); {}; {}; "
+                "main thread waiting on GPU {:.0f}%; {}; busiest: {}",
                 window.frames, elapsed, window.frames / elapsed, window.slowFrames, SlowFrameSeconds * 1000,
-                window.worstSeconds * 1000, lost * 1000, totalLostSeconds, TakeVblankSummary(),
+                window.worstSeconds * 1000, lost * 1000, totalLostSeconds,
+                window.frames ? double(window.draws) / window.frames : 0.0, window.maxDraws, TakeVblankSummary(),
                 TakeWaitSummary(), gpuWaitShare * 100, TakeFaultSummary(window.frames), BusiestThreads(elapsed));
     window = Window{now};
   }
