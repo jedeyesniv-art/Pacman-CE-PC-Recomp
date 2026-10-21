@@ -248,8 +248,7 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   before). Measured with the profiler over 100 s of attract (game-code samples): main thread -25%, job workers
   -50%. PGO (CMake PACMAN_PGO=generate / path; instrumented builds write the profile in OnWindowCloseRequested):
   no clear gain on top, not used.
-  Not yet done: native CRT routines (memcpy/heap), presentation buffer (last resort). Done: sampling the
-  job workers, native CRT routines, presentation buffer (last resort).
+  Not yet done: native CRT routines (memcpy/heap), presentation buffer (last resort).
 - The "Pac-Man build <date> <time>" log line is main.cpp's compile time (__DATE__/__TIME__), so it only changes
   when main.cpp or pacman_app.h recompile - not a reliable build ID.
 - Re-applying the patch to a fresh SDK clone: git -C tools\rexglue-sdk-src am ..\..\patches\rexglue-sdk\*.patch
