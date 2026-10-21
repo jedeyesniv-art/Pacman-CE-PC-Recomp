@@ -241,7 +241,14 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   are now ON EVERYWHERE (ApplyStreamingBlocks), and SDK patch 0006 lets them work with the scaled-resolve global
   watch (they were off at scale > 1, i.e. on the PC): faults 16-26 -> 3-6 per frame at 3x; blurred menu backdrop
   (scaled render-to-texture) checked.
-  Not yet done (owner's list): lighter lwsync/sync fences, -march=x86-64-v3 / PGO for game code, sampling the
+  Build settings (2026-10-21): lwsync already maps to an acq_rel fence (compiler-only on x86); the 22
+  seq_cst fences (sync/eieio) are all in D3D's GPU/ring code, so nothing to gain there. The game code target
+  (pacman_recomp) is now built with -march=x86-64-v3 -ffp-contract=off (CMake PACMAN_CPU_LEVEL; v2 for old CPUs):
+  movbe, BMI2 and hardware FMA for the 1335 std::fma (exact results; same attract state at the same moment as
+  before). Measured with the profiler over 100 s of attract (game-code samples): main thread -25%, job workers
+  -50%. PGO (CMake PACMAN_PGO=generate / path; instrumented builds write the profile in OnWindowCloseRequested):
+  no clear gain on top, not used.
+  Not yet done: native CRT routines (memcpy/heap), presentation buffer (last resort). Done: sampling the
   job workers, native CRT routines, presentation buffer (last resort).
 - The "Pac-Man build <date> <time>" log line is main.cpp's compile time (__DATE__/__TIME__), so it only changes
   when main.cpp or pacman_app.h recompile - not a reliable build ID.
