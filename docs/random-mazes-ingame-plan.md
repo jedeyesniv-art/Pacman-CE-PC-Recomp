@@ -28,6 +28,13 @@ choice: "secret bonus mode", runs can't be replicated). The startup option / ran
   0x821F4C60 -> +0xC -> +0x14, rows +0x18 next, key at +0x30), value read sub_821402a8.
 - No "m_i_map" string in the exe, so map names aren't looked up by name in code.
 
+- Checked 2026-10-21: "m_i_map" appears only in the gamedata*.bin files (no separate maze files, not in the
+  exe) -> the names are comments. All 46 grids at lines 65-1582 are DIFFERENT from each other, even for
+  stages sharing a name (stage 2 and 12 = m_i_map01), so grids are not one per name. Likely the grids are
+  addressed by position (46 = 2 x 23: per stage and half?) and/or the a,b numbers. Since shuffling whole
+  rows visibly changed the mazes, the row's position or the a value must matter - test by shuffling ONLY
+  the a column (or only names) at startup and see what changes.
+
 ## Next steps
 a. Find the stage-list parser: grep the generated code / disassemble the constructor sub_82139128 and the
    CSV row parser for how rows without a known key (stage rows, grid rows) are stored.
