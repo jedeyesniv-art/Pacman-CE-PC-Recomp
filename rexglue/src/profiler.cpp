@@ -47,6 +47,7 @@ struct Module {
 
 std::vector<Module> g_modules;  // sorted by base; only replaced while no thread is suspended
 std::atomic<DWORD> g_uiThreadId{0};
+std::atomic<uint32_t> g_unwindFaults{0};  // stack walks cut short by a bad read (see UnwindGuarded)
 
 void LoadModules() {
   std::vector<Module> modules;
@@ -98,9 +99,8 @@ PRUNTIME_FUNCTION FindFunction(const Module& module, uintptr_t address) {
   return rva < it->EndAddress ? const_cast<PRUNTIME_FUNCTION>(it) : nullptr;
 }
 
-// Walks the stack of a suspended thread. Returns the number of return addresses stored (leaf first).
-int Unwind(CONTEXT& context, uintptr_t (&frames)[MaxFrames]) {
-  int count = 0;
+// Walks the stack of a suspended thread, storing return addresses (leaf first) and counting them in count.
+void Unwind(CONTEXT& context, uintptr_t (&frames)[MaxFrames], int& count) {
   frames[count++] = context.Rip;
   while (count < MaxFrames) {
     const Module* module = FindModule(context.Rip);
@@ -124,6 +124,19 @@ int Unwind(CONTEXT& context, uintptr_t (&frames)[MaxFrames]) {
     if (context.Rip == 0)
       break;
     frames[count++] = context.Rip;
+  }
+}
+
+// Unwind, but a bad memory read ends the walk instead of the process. Under Wine a thread suspended in the
+// middle of exception dispatch (e.g. a write-watch fault) can have a context whose stack RtlVirtualUnwind can't
+// follow; on the Steam Deck that crashed the game within minutes (2026-10-21). No C++ objects here (SEH).
+int UnwindGuarded(CONTEXT& context, uintptr_t (&frames)[MaxFrames]) {
+  int count = 0;
+  __try {
+    Unwind(context, frames, count);
+  } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                : EXCEPTION_CONTINUE_SEARCH) {
+    g_unwindFaults.fetch_add(1, std::memory_order_relaxed);
   }
   return count;
 }
@@ -192,6 +205,8 @@ std::string Describe(uintptr_t address) {
 }
 
 void Report(std::vector<Target>& targets) {
+  if (const uint32_t faults = g_unwindFaults.exchange(0))
+    REXLOG_INFO("profiler: {} stack walks cut short by a bad read", faults);
   for (Target& target : targets) {
     const size_t total = target.samples.size();
     if (total == 0)
@@ -253,7 +268,7 @@ void SamplerThread() {
       CONTEXT context{};
       context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
       if (GetThreadContext(target.handle, &context))
-        count = Unwind(context, frames);
+        count = UnwindGuarded(context, frames);
       ResumeThread(target.handle);
       if (count == 0)
         continue;
