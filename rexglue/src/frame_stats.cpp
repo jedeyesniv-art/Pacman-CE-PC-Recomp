@@ -449,7 +449,7 @@ void FrameHook() {
   const double frameSeconds = std::chrono::duration<double>(now - last).count();
   last = now;
 
-  // Frame trace: dump around a slow frame once 40 ms have passed after it (at most 15 per run).
+  // Frame trace: dump around a slow frame once 40 ms have passed after it (at most 80 per run).
   static int64_t pendingDump = 0;
   static double pendingMs = 0;
   static int dumps = 0;
@@ -458,7 +458,7 @@ void FrameHook() {
     DumpTrace(pendingDump, pendingMs);
     pendingDump = 0;
   }
-  if (REXCVAR_GET(pacman_frame_trace) && frameSeconds > SlowFrameSeconds && pendingDump == 0 && dumps < 15) {
+  if (REXCVAR_GET(pacman_frame_trace) && frameSeconds > SlowFrameSeconds && pendingDump == 0 && dumps < 80) {
     pendingDump = nowNs;
     pendingMs = frameSeconds * 1000;
     dumps++;
