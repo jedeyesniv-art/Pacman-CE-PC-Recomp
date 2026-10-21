@@ -249,12 +249,14 @@ using Clock = std::chrono::steady_clock;
 
 constexpr double GuestFrameSeconds = 1.0 / 60.0;
 constexpr double SlowFrameSeconds = 0.020;  // a frame this long has missed its 16.7 ms slot
+constexpr double FastFrameSeconds = 0.010;  // a frame this short is catching up after a slow one
 constexpr auto ReportInterval = std::chrono::seconds(10);
 
 struct Window {
   Clock::time_point start;
   uint32_t frames = 0;
   uint32_t slowFrames = 0;
+  uint32_t fastFrames = 0;  // under FastFrameSeconds: catching up after a slow one
   double worstSeconds = 0;
   uint64_t draws = 0;
   uint32_t maxDraws = 0;
@@ -292,6 +294,8 @@ void FrameHook() {
   window.frames++;
   if (frameSeconds > SlowFrameSeconds)
     window.slowFrames++;
+  else if (frameSeconds < FastFrameSeconds)
+    window.fastFrames++;
   window.worstSeconds = std::max(window.worstSeconds, frameSeconds);
   const uint32_t draws = g_draws.exchange(0, std::memory_order_relaxed);
   window.draws += draws;
@@ -305,10 +309,11 @@ void FrameHook() {
     const uint64_t gpuWait = GpuWaitNanoseconds();
     const double gpuWaitShare = (gpuWait - gpuWaitAtStart) / 1e9 / elapsed;
     gpuWaitAtStart = gpuWait;
-    REXLOG_INFO("frames: {} in {:.1f} s ({:.1f} fps), {} over {:.0f} ms, worst {:.1f} ms; game behind by "
+    REXLOG_INFO("frames: {} in {:.1f} s ({:.1f} fps), {} over {:.0f} ms, {} under {:.0f} ms, worst {:.1f} ms; game behind by "
                 "{:.0f} ms this window, {:.1f} s total; draws {:.0f} per frame (max {}); {}; {}; "
                 "main thread waiting on GPU {:.0f}%; {}; busiest: {}",
                 window.frames, elapsed, window.frames / elapsed, window.slowFrames, SlowFrameSeconds * 1000,
+                window.fastFrames, FastFrameSeconds * 1000,
                 window.worstSeconds * 1000, lost * 1000, totalLostSeconds,
                 window.frames ? double(window.draws) / window.frames : 0.0, window.maxDraws, TakeVblankSummary(),
                 TakeWaitSummary(), gpuWaitShare * 100, TakeFaultSummary(window.frames), BusiestThreads(elapsed));

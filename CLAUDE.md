@@ -194,6 +194,15 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   core, owner felt off slightly better -> off under Wine too (b72bf7b). Remaining bumps accepted (owner: "not so
   bad", mostly noticed on the frame graph). Then the single build (see Portable build) replaced the separate
   Deck folder; dist\PacManCE-Vulkan-old-deck-build.zip kept until the owner confirms it on the Deck.
+- Remaining one-frame "bumps" (investigated 2026-10-21): pure frame-time JITTER, not lost frames - every VdSwap
+  interval over 20 ms is followed by one under 10 ms (frame stats now count both) and game time doesn't drift.
+  Same on the PC (hidden by the 120 Hz monitor). Not the present path (Vulkan presents IMMEDIATE, mode 0, on the
+  PC) and not --vsync (that is guest vblank emulation: false runs the game at 120 fps = double speed!).
+  SDK patch 0002 gpu_wait_reg_mem_sleep_us (app sets 200): WAIT_REG_MEM polls in high-res steps instead of
+  Sleep(1 ms) (15.6 ms at Windows' default timer resolution) - no measurable change on the PC (3.8 vs 5 slow
+  frames/10 s, noise), kept since the Deck A/B showed faster handshake reaction helps slightly and it costs no
+  CPU. Real cure would be frame pacing in the presenter (release frames on a steady 60 Hz beat, +1 frame of
+  latency) - deferred by choice: risky (the day-1 lag storms came from presentation timing).
 - The "Pac-Man build <date> <time>" log line is main.cpp's compile time (__DATE__/__TIME__), so it only changes
   when main.cpp or pacman_app.h recompile - not a reliable build ID.
 - Re-applying the patch to a fresh SDK clone: git -C tools\rexglue-sdk-src am ..\..\patches\rexglue-sdk\*.patch

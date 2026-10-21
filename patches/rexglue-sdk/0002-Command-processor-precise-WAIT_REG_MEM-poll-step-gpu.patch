@@ -1,0 +1,77 @@
+From a7d4c7b96b5de359d5c16f5dfc67ccc9ca1fb382 Mon Sep 17 00:00:00 2001
+From: John <326213404+jedeyesniv-art@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 13:22:38 +0100
+Subject: [PATCH 2/2] Command processor: precise WAIT_REG_MEM poll step
+ (gpu_wait_reg_mem_sleep_us)
+
+WAIT_REG_MEM with a wait field >= 0x100 slept wait/0x100 ms per failed check;
+Windows' Sleep(1) lasts up to 15.6 ms at the default timer resolution and over
+1 ms under Wine. With the option set, poll in that many microseconds using a
+high-resolution timer instead (default 0 = unchanged).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/graphics/command_processor.cpp | 40 ++++++++++++++++++++++++++++++
+ 1 file changed, 40 insertions(+)
+
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index a744375..12d3aa4 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -37,6 +37,44 @@
+ 
+ REXCVAR_DEFINE_BOOL(vsync, true, "GPU", "Enable vertical sync");
+ 
++REXCVAR_DEFINE_UINT32(gpu_wait_reg_mem_sleep_us, 0, "GPU",
++                      "Poll step for WAIT_REG_MEM waits with a wait field >= 0x100, in microseconds, using a "
++                      "high-resolution timer. 0 = the original Sleep of wait/0x100 ms, which on Windows lasts up to "
++                      "15.6 ms at the default timer resolution and can make the game miss a vblank")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
++#if defined(_WIN32)
++#ifndef WIN32_LEAN_AND_MEAN
++#define WIN32_LEAN_AND_MEAN
++#endif
++#ifndef NOMINMAX
++#define NOMINMAX
++#endif
++#include <windows.h>
++#endif
++
++namespace {
++// Sleeps about step_us microseconds. Windows: a high-resolution waitable timer per thread (Sleep and
++// NtDelayExecution round up to the timer resolution); elsewhere nanosleep via rex::thread::Sleep.
++void PreciseSleep(uint32_t step_us) {
++#if defined(_WIN32)
++  thread_local HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
++                                                     TIMER_ALL_ACCESS);
++  if (timer != nullptr) {
++    LARGE_INTEGER due;
++    due.QuadPart = -int64_t(step_us) * 10;  // relative, 100 ns units
++    if (SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) {
++      WaitForSingleObject(timer, INFINITE);
++      return;
++    }
++  }
++  ::Sleep(1);
++#else
++  rex::thread::Sleep(std::chrono::microseconds(step_us));
++#endif
++}
++}  // namespace
++
+ REXCVAR_DEFINE_BOOL(clear_memory_page_state, true, "GPU",
+                     "Refresh page-valid state from GPU-written memory at frame end. "
+                     "Disable for minor CPU overhead reduction, but may break memory coherency.")
+@@ -1036,6 +1074,8 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
+         if (!REXCVAR_GET(vsync)) {
+           // User wants it fast and dangerous.
+           rex::thread::MaybeYield();
++        } else if (const uint32_t step_us = REXCVAR_GET(gpu_wait_reg_mem_sleep_us)) {
++          PreciseSleep(step_us);
+         } else {
+           rex::thread::Sleep(std::chrono::milliseconds(wait / 0x100));
+         }
+-- 
+2.55.0.windows.5
+

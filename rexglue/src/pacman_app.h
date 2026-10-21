@@ -109,8 +109,10 @@ class PacmanApp : public rex::ReXApp {
         REXLOG_WARN("GPU backend '{}' unavailable in this build, using the default", backend);
         config.graphics = rex::system::LoadGpuPlugin(config.gpu_plugin);
       }
-      if (config.graphics)
+      if (config.graphics) {
         ApplyDesktopResolutionScale();
+        ApplyGpuWaitStep();
+      }
       if (config.graphics && RunningUnderWine())
         ApplyWineDefaults();
     }
@@ -131,6 +133,16 @@ class PacmanApp : public rex::ReXApp {
     REXLOG_INFO("Wine defaults: shared_memory_streaming_blocks={} pacman_fast_gpu_handshake={}",
                 rex::cvar::GetFlagByName("shared_memory_streaming_blocks"),
                 rex::cvar::GetFlagByName("pacman_fast_gpu_handshake"));
+  }
+
+  // D3D's per-frame handshake: the command processor waits for a word the CPU sets (WAIT_REG_MEM, wait 0x100).
+  // The SDK sleeps 1 ms per failed check, which at Windows' default timer resolution lasts up to 15.6 ms (and
+  // over 1 ms under Wine): now and then the game misses a vblank - the occasional one-frame spikes on the PC and
+  // the Steam Deck. gpu_wait_reg_mem_sleep_us (our SDK patch) polls in short high-resolution steps instead.
+  // The config file or command line still win; a plugin without the patch just doesn't have the setting.
+  static void ApplyGpuWaitStep() {
+    if (rex::cvar::GetFlagSource("gpu_wait_reg_mem_sleep_us") == rex::cvar::Source::kDefault)
+      rex::cvar::SetFlagByName("gpu_wait_reg_mem_sleep_us", "200");
   }
 
   // Wine (and so Proton) exports wine_get_version from its ntdll; Windows never does.
