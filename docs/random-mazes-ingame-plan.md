@@ -35,6 +35,13 @@ choice: "secret bonus mode", runs can't be replicated). The startup option / ran
   rows visibly changed the mazes, the row's position or the a value must matter - test by shuffling ONLY
   the a column (or only names) at startup and see what changes.
 
+- ANSWERED by owner play-test (2026-10-21, --pacman_random_mazes_test=names / values): BOTH fields matter, for
+  different aspects. Shuffling only the names or only the numbers each changed the mazes but desynced them:
+  dots ran through walls, and collision didn't match the drawn walls. So one field picks the maze graphics and
+  the other the dot/collision layout (which is which: not yet known). Whole-row shuffling ("rows", the shipped
+  mode) keeps them paired and plays correctly. => The in-game hook must permute whole stage entries (name and
+  values together), e.g. remap the stage index before the game looks up its row, not one field.
+
 ## Next steps
 a. Find the stage-list parser: grep the generated code / disassemble the constructor sub_82139128 and the
    CSV row parser for how rows without a known key (stage rows, grid rows) are stored.
