@@ -160,6 +160,13 @@ the maze; Deck overlay shows CPU and GPU both ~40-50%. Logs (owner's Deck, 1280x
   watches (scaled resolve); WatchMemoryRange un-streams and re-protects; marks reset every 10 s. PC, Vulkan
   1x attract: faults 14-25 -> 4 per frame, picture correct. App (ApplyWineDefaults in pacman_app.h): under
   Wine turns it on plus pacman_fast_gpu_handshake. Awaiting a Deck test.
+- Deck test of the fix: locked 60 fps (GPU Commands ~92% of a core from the fast handshake's polling, faults 4
+  per frame). But ~3 min in the game ended itself during normal play: log ends with "Execution complete"
+  (ReXApp's module thread: the guest main thread finished), no error. A window close never logs that line (the
+  process exits first). src\diagnostics.cpp now logs every call to KeBugCheck/Ex, XamLoaderTerminateTitle,
+  ExTerminateThread (info: normal thread end), RtlRaiseException (call sites hooked in pacman_config.toml),
+  "game main thread ended (...)" and any unhandled host exception with a module+offset stack. The 4
+  KeBugCheckEx sites in D3D are a debug "wrong CPU" check (bugcheck 0xF4 if device+0x14 bit 13 is set).
 - Re-applying the patch to a fresh SDK clone: git -C tools\rexglue-sdk-src am ..\..\patches\rexglue-sdk\*.patch
   (plus the libmspack symlink fix). The win-amd64-release-vk build dir only re-copies SDK DLLs when pacman.exe
   relinks - after an SDK-only change copy rexgpu-xenos.dll / rexruntime.dll in by hand (or touch a source).
