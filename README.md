@@ -11,12 +11,14 @@ Bandai Namco or Microsoft.
 
 - **Random mazes**: a bonus mode for Championship Mode. Press R3 on the title screen; the logo turns red and
   each game plays the mazes in a new random order (high scores aren't recorded for those games).
+- **The whole maze, at last**: the original draws the playfield too low, so the bottom of the pulsing neon
+  frame around the maze is cut off by the edge of the screen (on the console and in emulators alike). This
+  port moves the picture up so the frame is complete.
 - Runs light: about 7% CPU in gameplay on a desktop PC; 60 fps on a Steam Deck under Proton. Significant
   amounts of work spent tuning performance for Steam Deck, expect some minor dips but very playable.
 - Renders at your screen's resolution (3x on 4K) with the picture never stretched; Vulkan or Direct3D 12.
 - Plays from the game's package file as dumped from the console (STFS), or from unpacked files.
 - Xbox controller and keyboard; fullscreen toggle (F11 / Alt+Enter).
-- The playfield moved up slightly, so the bottom of the maze's frame is no longer cut off (optional).
 - Your saves are backed up automatically; achievements are recorded locally (F7 or the Achievements menu).
 - One build for Windows 10/11 and the Steam Deck.
 
