@@ -29,6 +29,11 @@ REXCVAR_DEFINE_BOOL(pacman_random_mazes, false, "Pac-Man",
                     "Shuffle Championship mode's maze order at each launch (the first maze stays); uses separate "
                     "save data (userdata\\random-mazes). Command line only");
 
+// Experiment (2026-10-21): which part of a stage row picks the maze? rows = move whole rows (default),
+// names = permute only the m_i_mapXX field, values = permute only the numbers after it.
+REXCVAR_DEFINE_STRING(pacman_random_mazes_test, "rows", "Pac-Man",
+                      "Random mazes experiment: rows | names | values");
+
 namespace {
 
 constexpr std::string_view ChampionshipFile = "gamedata1.bin";
@@ -105,7 +110,31 @@ void RandomMazesSetup(const std::filesystem::path& game_data_root) {
     if (end - i > 2) {
       // Keep the first stage, shuffle the rest. Rows only move within this list, so its byte length stays
       // the same; the stage label text moves with its row but the game reads by position.
-      std::shuffle(lines.begin() + i + 1, lines.begin() + end, random);
+      const std::string mode = REXCVAR_GET(pacman_random_mazes_test);
+      if (mode == "names" || mode == "values") {
+        // Split each row after its second comma (label,name | values) and permute one side only.
+        std::vector<size_t> order(end - i - 1);
+        for (size_t k = 0; k < order.size(); k++)
+          order[k] = i + 1 + k;
+        std::shuffle(order.begin(), order.end(), random);
+        const std::vector<std::string> before(lines.begin() + i + 1, lines.begin() + end);
+        auto split = [](const std::string& line) { return line.find(',', line.find(',') + 1); };
+        for (size_t k = 0; k < order.size(); k++) {
+          const std::string& own = before[k];
+          const std::string& other = before[order[k] - i - 1];
+          const size_t own_split = split(own), other_split = split(other);
+          if (mode == "names") {
+            const size_t own_name = own.find(','), other_name = other.find(',');
+            lines[i + 1 + k] = own.substr(0, own_name) + other.substr(other_name, other_split - other_name) +
+                               own.substr(own_split);
+          } else {
+            lines[i + 1 + k] = own.substr(0, own_split) + other.substr(other_split);
+          }
+        }
+        REXLOG_INFO("random mazes: test mode {}", mode);
+      } else {
+        std::shuffle(lines.begin() + i + 1, lines.begin() + end, random);
+      }
       std::string order;
       for (size_t k = i; k < end; k++)
         order += (k == i ? "" : " ") + MapName(lines[k]);
